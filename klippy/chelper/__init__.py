@@ -39,6 +39,7 @@ SOURCE_FILES = [
     "kin_extruder.c",
     "kin_shaper.c",
     "kin_idex.c",
+    "kin_colinear_tripteron.c",
 ]
 DEST_LIB = "c_helper.so"
 OTHER_FILES = [
@@ -187,6 +188,11 @@ defs_kin_idex = """
     struct stepper_kinematics * dual_carriage_alloc(void);
 """
 
+defs_kin_colinear_tripteron = """
+    struct stepper_kinematics *colinear_tripteron_stepper_alloc(double cx
+        , double cy);
+"""
+
 defs_serialqueue = """
     #define MESSAGE_MAX 64
     struct pull_queue_message {
@@ -259,6 +265,7 @@ defs_all = [
     defs_kin_extruder,
     defs_kin_shaper,
     defs_kin_idex,
+    defs_kin_colinear_tripteron,
 ]
 
 
