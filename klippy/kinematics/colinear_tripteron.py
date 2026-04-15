@@ -32,15 +32,36 @@ class ColinearTripteronKinematics:
                 "Colinear tripteron tower geometry is degenerate"
                 " (determinant ~ 0)")
         self.det = det
+        # Read workspace limits
+        print_radius = config.getfloat("print_radius", above=0.0)
+        self.max_xy2 = print_radius**2
+        self.min_z = config.getfloat("minimum_z_position", 0.0)
         # Setup tower rails (stepper_a, stepper_b, stepper_c)
+        # Tower rails don't need position_min/max (like delta)
         stepper_configs = [config.getsection("stepper_" + a) for a in "abc"]
-        rail_a = stepper.LookupMultiRail(stepper_configs[0])
+        rail_a = stepper.LookupMultiRail(stepper_configs[0],
+                                         need_position_minmax=False)
         a_endstop = rail_a.get_homing_info().position_endstop
         rail_b = stepper.LookupMultiRail(
-            stepper_configs[1], default_position_endstop=a_endstop)
+            stepper_configs[1], need_position_minmax=False,
+            default_position_endstop=a_endstop)
         rail_c = stepper.LookupMultiRail(
-            stepper_configs[2], default_position_endstop=a_endstop)
+            stepper_configs[2], need_position_minmax=False,
+            default_position_endstop=a_endstop)
         self.rails = [rail_a, rail_b, rail_c]
+        # Compute home position via forward kinematics from endstop positions
+        endstops = [rail.get_homing_info().position_endstop
+                    for rail in self.rails]
+        ea, eb, ec = endstops
+        home_x = (ea * (g_y - b_y) + eb * (a_y - g_y)
+                  + ec * (b_y - a_y)) / det
+        home_y = (ea * (g_x - b_x) + eb * (a_x - g_x)
+                  + ec * (b_x - a_x)) / det
+        home_z = (ea * (b_y * g_x - b_x * g_y)
+                  + eb * (a_x * g_y - a_y * g_x)
+                  + ec * (a_y * b_x - a_x * b_y)) / det
+        self.home_position = (home_x, home_y, home_z)
+        self.max_z = home_z
         # Setup itersolve for each rail
         # IK: stepper = cx*x - cy*y + z  =>  C sees cx*x + cy*y + z
         # so pass (cx=a_x, cy=-a_y) etc.
@@ -62,9 +83,9 @@ class ColinearTripteronKinematics:
         self.max_z_accel = config.getfloat(
             "max_z_accel", max_accel, above=0.0, maxval=max_accel)
         self.need_home = True
-        ranges = [r.get_range() for r in self.rails]
-        self.axes_min = toolhead.Coord(*[r[0] for r in ranges], e=0.0)
-        self.axes_max = toolhead.Coord(*[r[1] for r in ranges], e=0.0)
+        max_xy = print_radius
+        self.axes_min = toolhead.Coord(-max_xy, -max_xy, self.min_z, 0.0)
+        self.axes_max = toolhead.Coord(max_xy, max_xy, self.max_z, 0.0)
         self.supports_dual_carriage = False
 
     def get_steppers(self):
@@ -96,15 +117,10 @@ class ColinearTripteronKinematics:
     def home(self, homing_state):
         # All axes are homed simultaneously (like delta)
         homing_state.set_axes([0, 1, 2])
-        forcepos = [0.0, 0.0, None, None]
-        # Use the first rail's homing info to set force position
-        hi = self.rails[0].get_homing_info()
-        position_min, position_max = self.rails[0].get_range()
-        if hi.positive_dir:
-            forcepos[2] = -1.5 * (hi.position_endstop - position_min)
-        else:
-            forcepos[2] = 1.5 * (position_max - hi.position_endstop)
-        homepos = [0.0, 0.0, hi.position_endstop, None]
+        # Move away from home position then back to it
+        forcepos = list(self.home_position) + [None]
+        forcepos[2] = -1.5 * abs(self.max_z)
+        homepos = list(self.home_position) + [None]
         homing_state.home_rails(self.rails, forcepos, homepos)
 
     def _motor_off(self, print_time):
@@ -114,11 +130,10 @@ class ColinearTripteronKinematics:
         if self.need_home:
             raise move.move_error("Must home axis first")
         end_pos = move.end_pos
-        if (end_pos[0] < self.axes_min.x or end_pos[0] > self.axes_max.x
-                or end_pos[1] < self.axes_min.y
-                or end_pos[1] > self.axes_max.y
-                or end_pos[2] < self.axes_min.z
-                or end_pos[2] > self.axes_max.z):
+        end_xy2 = end_pos[0]**2 + end_pos[1]**2
+        if end_xy2 > self.max_xy2:
+            raise move.move_error()
+        if end_pos[2] < self.min_z or end_pos[2] > self.max_z:
             raise move.move_error()
         if move.axes_d[2]:
             z_ratio = move.move_d / abs(move.axes_d[2])
