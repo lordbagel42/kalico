@@ -50,14 +50,9 @@ class ColinearTripteronKinematics:
         for s in self.get_steppers():
             s.set_trapq(toolhead.get_trapq())
             toolhead.register_step_generator(s.generate_steps)
-        # Cross-register all steppers on all endstops (all axes couple)
-        for rail in self.rails:
-            for endstop, name in rail.get_endstops():
-                for other_rail in self.rails:
-                    if other_rail is rail:
-                        continue
-                    for s in other_rail.get_steppers():
-                        endstop.add_stepper(s)
+        # No endstop cross-registration needed. home_rails() starts all
+        # endstops simultaneously, and the trdispatch mechanism ensures all
+        # steppers stop when any endstop triggers.
         config.get_printer().register_event_handler(
             "stepper_enable:motor_off", self._motor_off)
         # Setup boundary checks
