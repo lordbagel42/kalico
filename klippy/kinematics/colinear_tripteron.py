@@ -96,7 +96,7 @@ class ColinearTripteronKinematics:
     def home(self, homing_state):
         # All axes are homed simultaneously (like delta)
         homing_state.set_axes([0, 1, 2])
-        forcepos = [None, None, None, None]
+        forcepos = [0.0, 0.0, None, None]
         # Use the first rail's homing info to set force position
         hi = self.rails[0].get_homing_info()
         position_min, position_max = self.rails[0].get_range()
