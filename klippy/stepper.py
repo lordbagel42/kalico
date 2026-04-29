@@ -327,6 +327,11 @@ class MCU_stepper:
 
 # Helper code to build a stepper object from a config section
 def PrinterStepper(config, units_in_radians=False):
+    driver = config.get("driver", None)
+    if driver is not None:
+        printer = config.get_printer()
+        mod = printer.load_object(config, driver)
+        return mod.load_config(config, units_in_radians)
     printer = config.get_printer()
     name = config.get_name()
     # Stepper definition
