@@ -4,12 +4,10 @@
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
 import logging
-import queue
 import threading
+import queue
 import time
-
 from klippy import chelper
-
 
 class ServoStepper:
     def __init__(self, config, units_in_radians=False):
@@ -19,14 +17,16 @@ class ServoStepper:
 
         # Load protocol
         protocol_name = config.get('servo_protocol', 'simple')
-        self.protocol = self.printer.load_object(config,
-            'servo_protocol_' + protocol_name, self.name)
+        self.protocol = self.printer.load_object(
+            config, 'servo_protocol_' + protocol_name, self.name)
 
         # Motion parameters
         # We use standard rotation_distance / full_steps_per_rotation logic
         # but for servos it might just be 1.0 if they handle units directly.
-        self.rotation_dist = config.getfloat('rotation_distance', 1.0, above=0.0)
-        self.steps_per_rotation = config.getfloat('full_steps_per_rotation', 1.0, above=0.0)
+        self.rotation_dist = config.getfloat(
+            'rotation_distance', 1.0, above=0.0)
+        self.steps_per_rotation = config.getfloat(
+            'full_steps_per_rotation', 1.0, above=0.0)
         self.step_dist = self.rotation_dist / self.steps_per_rotation
 
         # Iterative solver setup
@@ -108,7 +108,8 @@ class ServoStepper:
 
     def set_position(self, coord):
         # itersolve_set_position updates the internal sk commanded_pos
-        self.ffi_lib.itersolve_set_position(self.sk, coord[0], coord[1], coord[2])
+        self.ffi_lib.itersolve_set_position(
+            self.sk, coord[0], coord[1], coord[2])
         self.last_pos = self.ffi_lib.itersolve_get_commanded_pos(self.sk)
         self.cmd_queue.put(('pos', (self.last_flush_time, self.last_pos)))
 
