@@ -49,5 +49,7 @@ void trapq_set_position(struct trapq *tq, double print_time
                         , double pos_x, double pos_y, double pos_z);
 int trapq_extract_old(struct trapq *tq, struct pull_move *p, int max
                       , double start_time, double end_time);
+int trapq_extract_pending(struct trapq *tq, struct pull_move *p, int max
+                          , double start_time, double end_time);
 
 #endif // trapq.h

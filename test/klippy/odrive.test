@@ -1,0 +1,10 @@
+# Test case for ODrive v3.6 support (device-less: no real ODrive is
+# attached, so this only exercises config parsing, rail/stepper duck
+# type construction, virtual endstop pin registration, and command
+# registration/graceful-not-connected behavior)
+CONFIG odrive.cfg
+DICTIONARY atmega2560.dict
+
+ODRIVE_STATUS ODRIVE=drive0
+ODRIVE_DISARM AXIS=x_motor
+QUERY_ENDSTOPS

@@ -1146,6 +1146,105 @@ scheduled to run after the stepper move completes, however if a manual
 stepper move uses SYNC=0 then future G-Code movement commands may run
 in parallel with the stepper movement.
 
+### [odrive]
+
+The following commands are available when an
+[odrive config section](Config_Reference.md#odrive) is enabled. See
+[ODrive_Implementation_Spec.md](ODrive_Implementation_Spec.md) for the
+full design. Board-level commands take an `ODRIVE=<name>` parameter
+identifying the `[odrive <name>]` section; axis-level commands take an
+`AXIS=<name>` parameter identifying the `[odrive_axis <name>]` section.
+
+#### ODRIVE_CONNECT
+`ODRIVE_CONNECT ODRIVE=<name>`: Connect to the ODrive board and run its
+firmware-version probe and configuration push. Klipper attempts this
+automatically at startup; this command is for reconnecting after the
+board was plugged in later or after `ODRIVE_DISCONNECT`.
+
+#### ODRIVE_DISCONNECT
+`ODRIVE_DISCONNECT ODRIVE=<name>`: Disarm all axes on the board and
+close the serial connection.
+
+#### ODRIVE_STATUS
+`ODRIVE_STATUS [ODRIVE=<name>]`: Report connection state, firmware/
+hardware version, bus voltage, and per-axis state/errors.
+
+#### ODRIVE_CALIBRATE
+`ODRIVE_CALIBRATE AXIS=<name> [TYPE=full|motor|encoder_offset|index]`:
+Run a motor and/or encoder calibration sequence, printing progress as
+the ODrive moves through calibration states. On success this sets the
+appropriate `pre_calibrated` flag and reminds the user to run
+`ODRIVE_SAVE_CONFIG` to persist the result to the ODrive's own NVM.
+
+#### ODRIVE_INDEX_SEARCH
+`ODRIVE_INDEX_SEARCH AXIS=<name>`: Run an encoder index search (a
+shorthand for `ODRIVE_CALIBRATE ... TYPE=index`).
+
+#### ODRIVE_ARM
+`ODRIVE_ARM AXIS=<name> [FORCE=0|1]`: Enter closed-loop position
+control. Refused if the axis has pending errors, is not calibrated, or
+the bus voltage is out of range, unless `FORCE=1` is given.
+
+#### ODRIVE_DISARM
+`ODRIVE_DISARM AXIS=<name>`: Leave closed-loop control and idle the
+motor.
+
+#### ODRIVE_TUNE
+`ODRIVE_TUNE AXIS=<name> [POS_GAIN=<value>] [VEL_GAIN=<value>]
+[VEL_INTEGRATOR_GAIN=<value>] [FILTER_BANDWIDTH=<value>]
+[CURRENT_LIM=<value>] [VEL_LIMIT=<value>] [SAVE=0|1]`: Adjust
+controller gains and limits live. With no parameters, reports the
+current values. With `SAVE=1`, also stages the new values into
+`printer.cfg` (surfacing the normal `SAVE_CONFIG` prompt).
+
+#### ODRIVE_CLEAR_ERRORS
+`ODRIVE_CLEAR_ERRORS ODRIVE=<name>`: Clear all error flags on the
+board's axes.
+
+#### ODRIVE_ERRORS
+`ODRIVE_ERRORS ODRIVE=<name> [VERBOSE=0|1]`: Poll and report decoded
+error flag names for every axis on the board.
+
+#### ODRIVE_READ
+`ODRIVE_READ ODRIVE=<name> PROPERTY=<path>`: Read and report a raw
+ODrive property (e.g. `PROPERTY=axis0.motor.config.current_lim`).
+
+#### ODRIVE_WRITE
+`ODRIVE_WRITE ODRIVE=<name> PROPERTY=<path> VALUE=<value> [FORCE=0|1]`:
+Write a raw ODrive property, verifying the write by reading it back.
+Refused for properties the module manages internally (setpoints,
+requested_state, control/input mode) on an armed, bound axis unless
+`FORCE=1` is given.
+
+#### ODRIVE_DUMP_CONFIG
+`ODRIVE_DUMP_CONFIG ODRIVE=<name>`: Report the board's version/serial/
+bus voltage plus every axis's configured motor/encoder/controller
+parameters.
+
+#### ODRIVE_SAVE_CONFIG
+`ODRIVE_SAVE_CONFIG ODRIVE=<name>`: Persist the current configuration
+to the ODrive's own NVM. On firmware >= 0.5.2 this reboots the board;
+Kalico manages the resulting USB re-enumeration and reconnects
+automatically. Any bound kinematics axis becomes unhomed.
+
+#### ODRIVE_ERASE_CONFIG
+`ODRIVE_ERASE_CONFIG ODRIVE=<name> CONFIRM=1`: Erase all ODrive-side
+NVM configuration and calibration data, then reboot/reconnect.
+
+#### ODRIVE_REBOOT
+`ODRIVE_REBOOT ODRIVE=<name>`: Reboot the ODrive board and reconnect.
+
+#### ODRIVE_AXIS_MOVE
+`ODRIVE_AXIS_MOVE AXIS=<name> POS=<pos> [VEL=<velocity>]`: Command a
+standalone on-device move to an absolute position (in mm), for jogging
+or bench testing. Refused if the axis is bound to a homed kinematics
+rail during an active print.
+
+#### ODRIVE_WATCHDOG
+`ODRIVE_WATCHDOG ODRIVE=<name> ENABLE=0|1 [TIMEOUT=<seconds>]`:
+Diagnostic override of the ODrive watchdog. Not needed in normal use --
+the watchdog is managed automatically by ODRIVE_ARM/ODRIVE_DISARM.
+
 ### [mcp4018]
 
 The following command is available when a

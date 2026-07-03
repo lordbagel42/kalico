@@ -621,6 +621,19 @@ def LookupMultiRail(
     default_position_endstop=None,
     units_in_radians=False,
 ):
+    if config.get("odrive_axis", None) is not None:
+        # This rail is driven by a host-connected ODrive servo instead of
+        # an MCU stepper -- see docs/ODrive_Implementation_Spec.md. All
+        # kinematics classes call LookupMultiRail() to build a rail from
+        # a config section, so intercepting here lets any kinematics use
+        # an ODrive axis with no per-kinematics changes.
+        axis_name = config.get("odrive_axis")
+        odrive_axis = config.get_printer().load_object(
+            config, "odrive_axis " + axis_name
+        )
+        return odrive_axis.lookup_rail(
+            config, need_position_minmax, default_position_endstop
+        )
     rail = PrinterRail(
         config, need_position_minmax, default_position_endstop, units_in_radians
     )

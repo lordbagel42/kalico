@@ -3180,6 +3180,146 @@ printer kinematics.
 #   MANUAL_STEPPER movement commands.
 ```
 
+### ⚠️ [odrive]
+
+Support for driving a printer axis with an [ODrive](https://odriverobotics.com/)
+v3.6 servo controller (including clone boards on firmware 0.5.1-0.5.6)
+connected to the host over USB, in closed-loop position mode. This is
+an experimental/"danger" feature: motion is streamed over USB rather
+than generated with hardware-timed step pulses. See
+[ODrive_Implementation_Spec.md](ODrive_Implementation_Spec.md) for the
+full design and [G-Codes](G-Codes.md#odrive) for the command reference.
+
+One `[odrive]` section per physical board (USB connection, up to two
+motors); one `[odrive_axis]` section per motor/encoder pair; the
+`[stepper_x]`/`[stepper_y]`/`[stepper_z]` section for a servo-driven
+axis uses `odrive_axis:` in place of `step_pin`/`dir_pin`/`microsteps`.
+
+```
+[odrive drive0]
+serial: /dev/serial/by-id/usb-ODrive_Robotics_ODrive_3.6-if00
+#   The serial device for the ODrive's USB-CDC ASCII interface. A
+#   by-path device (e.g. /dev/serial/by-path/...) is also accepted and
+#   is recommended for clone boards, which are known to sometimes
+#   report a missing or duplicate USB serial number. This parameter
+#   must be provided.
+#serial_number:
+#   Optional hex serial number to verify after connecting. If the
+#   device does not report a usable serial number (a known limitation
+#   on some clones) this check is skipped with a warning rather than
+#   treated as an error. The default is to not verify.
+#baud: 115200
+#use_checksums: True
+#   Whether to append/verify GCode-style XOR checksums on the ASCII
+#   protocol link. The default is True.
+#auto_reconnect: True
+#   Automatically retry the connection if it is lost while the board
+#   is not currently driving a homed, active kinematics axis. The
+#   default is True.
+#reconnect_timeout: 15.0
+#   Seconds to wait for the ODrive to re-enumerate after a
+#   save/erase/reboot command before giving up. The default is 15.
+#sample_period: 0.005
+#   Setpoint streaming period, in seconds (200Hz by default). Must be
+#   between 0.002 and 0.02.
+#latency_compensation: 0.010
+#   Seconds to sample the motion queue ahead of "now", compensating
+#   for USB transfer, ASCII parsing, and ODrive-side filter latency.
+#error_poll_period: 0.5
+#   Round-robin period, in seconds, for polling bus voltage and each
+#   axis's error/telemetry registers.
+#watchdog_timeout: 1.0
+#   ODrive watchdog timeout, in seconds. Must be 0 (disabled, not
+#   recommended) or at least 0.25.
+#vbus_min: 10.0
+#vbus_max: 26.0
+#   Bus voltage range, in volts. Arming is refused and an already
+#   armed axis faults if the bus voltage leaves this range.
+#idle_feed_period: 0.1
+#   How often, in seconds, to feed the ODrive watchdog while armed but
+#   otherwise idle.
+#stall_shutdown_ticks: 3
+#   Number of consecutive failed setpoint transmissions during active
+#   motion before Kalico shuts down (matching how an unresponsive MCU
+#   is handled).
+```
+
+```
+[odrive_axis my_x_motor]
+odrive: drive0
+#   Name of the [odrive] section this motor belongs to. This parameter
+#   must be provided.
+axis: 0
+#   Which ODrive motor channel (0 for M0, 1 for M1) this section
+#   configures. This parameter must be provided.
+pole_pairs:
+#   Number of motor pole pairs (magnet count / 2). This parameter must
+#   be provided.
+torque_constant:
+#   Motor torque constant in Nm/A (8.27 / KV for BLDC motors). This
+#   parameter must be provided.
+#current_lim: 20.0
+#calibration_current: 10.0
+#motor_type: high_current
+#   One of "high_current" or "gimbal".
+encoder_cpr:
+#   Encoder counts per revolution (4x the PPR for quadrature encoders).
+#   This parameter must be provided.
+#encoder_use_index: False
+#encoder_bandwidth: 1000.0
+#pos_gain: 20.0
+#vel_gain: 0.16
+#vel_integrator_gain: 0.32
+#vel_limit: 30.0
+#input_mode: pos_filter
+#   One of "pos_filter" or "passthrough". See
+#   ODrive_Implementation_Spec.md for guidance on choosing between
+#   these based on sample_period.
+#filter_bandwidth:
+#   Input filter bandwidth in Hz, used when input_mode is pos_filter.
+#   The default is 0.5 / sample_period.
+#enable_thermistor: False
+#motor_temp_limit: 90.0
+#following_error: 1.0
+#   Maximum allowed deviation (in mm) between the commanded and
+#   measured position while armed before Kalico treats it as a fault.
+#   A value of 0 disables this check.
+```
+
+Add the following to a `[stepper_x]`/`[stepper_y]`/`[stepper_z]` section
+(or a kinematics-specific rail section) to drive that axis with an
+ODrive motor instead of step/dir pins:
+
+```
+[stepper_x]
+odrive_axis: my_x_motor
+#   Name of the [odrive_axis] section driving this rail, in place of
+#   step_pin/dir_pin/microsteps. This parameter must be provided.
+#odrive_direction: 1
+#   Either 1 or -1; replaces the polarity that a dir_pin inversion
+#   would otherwise provide.
+#virtual_steps_per_rotation: 4000
+#   Resolution of the internal "virtual step" position used for
+#   distance-moved bookkeeping (homing, rehoming tolerance checks).
+rotation_distance:
+#   See the "stepper" section for a description of this parameter.
+#homing_current:
+#   Reduced motor current (in amps) applied during a sensorless
+#   homing move (endstop_pin: <odrive_axis name>:virtual_endstop). The
+#   default is to not reduce current.
+#homing_pos_error_threshold: 0.5
+#homing_current_threshold: 0
+#homing_trigger_count: 2
+#homing_poll_period: 0.010
+#homing_trigger_latency: 0.005
+#   Sensorless-homing-only tuning parameters -- see
+#   ODrive_Implementation_Spec.md, "Homing design".
+#   position_min, position_max, position_endstop, endstop_pin,
+#   homing_speed, second_homing_speed, homing_retract_dist,
+#   min_home_dist, use_sensorless_homing, homing_accel:
+#   See the "stepper" section for a description of these parameters.
+```
+
 ### [mixing_extruder]
 
 A mixing printhead which has <n>in-1out mixing nozzle. When activated

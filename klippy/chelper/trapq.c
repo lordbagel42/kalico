@@ -254,3 +254,40 @@ trapq_extract_old(struct trapq *tq, struct pull_move *p, int max
     }
     return res;
 }
+
+// Return moves from the "live" (not yet finalized) portion of the
+// movement queue that overlap [start_time, end_time). Unlike
+// trapq_extract_old() (which only sees moves already retired to
+// tq->history by trapq_finalize_moves()), this can report the move
+// currently in progress -- needed to sample a commanded position for a
+// time that is still ahead of the finalized history, e.g. for a
+// host-streamed servo setpoint sampled slightly ahead of "now", or for
+// any query made during a long in-flight move such as a homing move.
+// tq->moves is stored in forward chronological order (oldest/head
+// sentinel first), the opposite order of tq->history.
+int __visible
+trapq_extract_pending(struct trapq *tq, struct pull_move *p, int max
+                      , double start_time, double end_time)
+{
+    int res = 0;
+    struct move *m;
+    list_for_each_entry(m, &tq->moves, node) {
+        if (res >= max || m->print_time >= end_time)
+            break;
+        if (start_time >= m->print_time + m->move_t)
+            continue;
+        p->print_time = m->print_time;
+        p->move_t = m->move_t;
+        p->start_v = m->start_v;
+        p->accel = 2. * m->half_accel;
+        p->start_x = m->start_pos.x;
+        p->start_y = m->start_pos.y;
+        p->start_z = m->start_pos.z;
+        p->x_r = m->axes_r.x;
+        p->y_r = m->axes_r.y;
+        p->z_r = m->axes_r.z;
+        p++;
+        res++;
+    }
+    return res;
+}

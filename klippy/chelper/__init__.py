@@ -125,6 +125,8 @@ defs_trapq = """
         , double pos_x, double pos_y, double pos_z);
     int trapq_extract_old(struct trapq *tq, struct pull_move *p, int max
         , double start_time, double end_time);
+    int trapq_extract_pending(struct trapq *tq, struct pull_move *p, int max
+        , double start_time, double end_time);
 """
 
 defs_kin_cartesian = """
