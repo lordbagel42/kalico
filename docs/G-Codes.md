@@ -1235,15 +1235,19 @@ NVM configuration and calibration data, then reboot/reconnect.
 `ODRIVE_REBOOT ODRIVE=<name>`: Reboot the ODrive board and reconnect.
 
 #### ODRIVE_AXIS_MOVE
-`ODRIVE_AXIS_MOVE AXIS=<name> POS=<pos> [VEL=<velocity>]`: Command a
-standalone on-device move to an absolute position (in mm), for jogging
-or bench testing. Refused if the axis is bound to a homed kinematics
-rail during an active print.
+`ODRIVE_AXIS_MOVE AXIS=<name> [POS=<pos>|TURNS=<turns>]
+[VEL=<velocity>]`: Command a standalone on-device move to an absolute
+position, for jogging or bench testing. `POS` is in mm and requires
+the axis to be bound to a `[stepper_*]` rail (so `rotation_distance`
+is known); for an unbound axis use `TURNS` to move in raw motor turns
+instead. Refused if the axis is bound to a homed kinematics rail
+during an active print.
 
 #### ODRIVE_WATCHDOG
-`ODRIVE_WATCHDOG ODRIVE=<name> ENABLE=0|1 [TIMEOUT=<seconds>]`:
-Diagnostic override of the ODrive watchdog. Not needed in normal use --
-the watchdog is managed automatically by ODRIVE_ARM/ODRIVE_DISARM.
+`ODRIVE_WATCHDOG AXIS=<name> ENABLE=0|1 [TIMEOUT=<seconds>]`:
+Diagnostic override of the ODrive watchdog for one motor axis. Not
+needed in normal use -- the watchdog is managed automatically by
+ODRIVE_ARM/ODRIVE_DISARM.
 
 ### [mcp4018]
 

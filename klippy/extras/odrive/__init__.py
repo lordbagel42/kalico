@@ -17,6 +17,7 @@ import logging
 import os
 
 from . import properties
+from . import transport as transport_mod
 from .transport import OdriveTransport, TransportState
 
 
@@ -202,7 +203,6 @@ class ODriveBoard:
                 "underruns": self.transport.stats["underruns"],
                 "tx_bytes": self.transport.stats["tx_bytes"],
             },
-            "save_config_pending": False,
             "capabilities": dict(self.props.capabilities),
         }
 
@@ -480,9 +480,15 @@ class ODriveBoard:
             axis.poll_errors_and_telemetry()
             gcmd.respond_info(axis.format_errors())
 
+    def _get_property_param(self, gcmd):
+        prop = gcmd.get("PROPERTY")
+        if not transport_mod.valid_property_path(prop):
+            raise gcmd.error("Invalid ODrive property path '%s'" % (prop,))
+        return prop
+
     def cmd_ODRIVE_READ(self, gcmd):
         self._require_connected(gcmd)
-        prop = gcmd.get("PROPERTY")
+        prop = self._get_property_param(gcmd)
         value = self.transport.read_property_sync(prop, timeout=2.0)
         if value is None:
             raise gcmd.error(
@@ -492,8 +498,14 @@ class ODriveBoard:
 
     def cmd_ODRIVE_WRITE(self, gcmd):
         self._require_connected(gcmd)
-        prop = gcmd.get("PROPERTY")
+        prop = self._get_property_param(gcmd)
         value = gcmd.get("VALUE")
+        try:
+            float(value)
+        except ValueError:
+            raise gcmd.error(
+                "ODRIVE_WRITE VALUE must be numeric (got '%s')" % (value,)
+            )
         force = gcmd.get_int("FORCE", 0)
         for axis in self.axes.values():
             if axis.armed and axis.owns_property(prop) and not force:

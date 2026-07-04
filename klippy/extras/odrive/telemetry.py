@@ -40,8 +40,15 @@ def register_board_endpoint(board):
 
 
 def property_read_handler(board):
+    from .transport import valid_property_path
+
     def handler(web_request):
         prop = web_request.get_str("property")
+        # Unlike gcode params, webhook strings can carry whitespace and
+        # control characters that would break the line-oriented ASCII
+        # framing (or inject extra commands) -- validate before use
+        if not valid_property_path(prop):
+            raise web_request.error("Invalid ODrive property path")
         if not board.connected:
             web_request.send(
                 {"property": prop, "value": None, "connected": False}

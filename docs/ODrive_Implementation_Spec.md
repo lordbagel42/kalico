@@ -784,8 +784,8 @@ mux-command convention in `klippy/extras/tmc.py`.
 | `ODRIVE_SAVE_CONFIG` | `ODRIVE=` | `ss` — persists to ODrive NVM, manages the resulting reboot/reconnect. Warns that bound kinematics axes become unhomed. |
 | `ODRIVE_ERASE_CONFIG` | `ODRIVE=` `CONFIRM=1` | `se` — wipes ODrive NVM, manages reboot. |
 | `ODRIVE_REBOOT` | `ODRIVE=` | `sr`, manages reconnect. |
-| `ODRIVE_AXIS_MOVE` | `AXIS=` `POS=` `[VEL=]` `[ACCEL=]` | Standalone on-device trapezoidal move (`t`/`TRAP_TRAJ`). Refused if the axis is bound to a homed kinematics rail with a print in progress. |
-| `ODRIVE_WATCHDOG` | `ODRIVE=` `ENABLE=` `[TIMEOUT=]` | Diagnostic override of watchdog behavior. |
+| `ODRIVE_AXIS_MOVE` | `AXIS=` `POS=`\|`TURNS=` `[VEL=]` | Standalone on-device trapezoidal move (`TRAP_TRAJ`). `POS` (mm) requires a bound rail; `TURNS` moves in raw motor turns. Refused if the axis is bound to a homed kinematics rail with a print in progress. |
+| `ODRIVE_WATCHDOG` | `AXIS=` `ENABLE=` `[TIMEOUT=]` | Diagnostic override of watchdog behavior for one motor axis. |
 
 ### Calibration wizard (`ODRIVE_CALIBRATE`)
 
@@ -905,10 +905,14 @@ now because it must be considered part of the module's public contract.
     "vbus_voltage": 24.1,
     "errors": [],  # board-level aggregate of all axis error names
     "streaming": {"rate": 200.0, "jitter_ms": 0.8, "underruns": 0, "tx_bytes": 184320},
-    "save_config_pending": False,
     "capabilities": {"watchdog_feed_cmd": True, "device_homing": True, "endstop_gpio": True},
 }
 ```
+
+(Pending-`SAVE_CONFIG` state is deliberately not duplicated here — the
+web UI already sources its save-config banner from the `configfile`
+object's own status, which `ODRIVE_TUNE SAVE=1` and the calibration
+wizard stage into via `configfile.set`.)
 
 ### `[odrive_axis x_motor].get_status(eventtime)`
 

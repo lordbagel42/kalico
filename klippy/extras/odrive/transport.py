@@ -13,6 +13,7 @@
 # This file may be distributed under the terms of the GNU GPLv3 license.
 import collections
 import logging
+import re
 
 try:
     import serial
@@ -21,6 +22,17 @@ except ImportError:
 
 DEFAULT_TX_PERIOD = 0.05
 RESYNC_FAILURE_LIMIT = 3
+
+# Dotted ODrive property paths (e.g. "axis0.motor.config.current_lim").
+# Anything outside this conservative set -- in particular whitespace and
+# control characters -- could break the line-oriented ASCII framing or
+# smuggle extra commands onto the serial link, so callers that accept
+# externally-supplied paths (webhooks, gcode) must validate first.
+PROPERTY_PATH_RE = re.compile(r"^[A-Za-z0-9_.]{1,128}$")
+
+
+def valid_property_path(path):
+    return isinstance(path, str) and PROPERTY_PATH_RE.match(path) is not None
 
 
 class TransportState:
@@ -209,11 +221,18 @@ class OdriveTransport:
                 0.9 * self.stats["jitter_ms"] + 0.1 * jitter
             )
         self.stats["last_tick_time"] = eventtime
-        # Expire timed-out requests
+        # Expire timed-out requests; enough consecutive timeouts means
+        # the device has gone silent while the TTY stayed open, which
+        # takes the same lost-link path as a checksum resync failure
+        # (any successfully received line resets the counter)
         while self.pending and eventtime > self.pending[0].deadline:
             self.pending.popleft().complete(None)
             self.resync_failures += 1
             self.stats["underruns"] += 1
+        if self.resync_failures >= RESYNC_FAILURE_LIMIT:
+            self.resync_failures = 0
+            self._handle_io_error("device not responding (request timeouts)")
+            return self.reactor.NEVER
         wrote = False
         if self.stream_cb is not None:
             line = self.stream_cb(eventtime)

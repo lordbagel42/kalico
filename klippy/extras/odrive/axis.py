@@ -198,7 +198,7 @@ class ODriveAxis:
             "index_found": self.index_found,
             "errors": dict(self.last_errors),
             "pos_estimate": self._turns_to_mm(self.pos_estimate_turns),
-            "vel_estimate": self._turns_to_mm(self.vel_estimate_turns),
+            "vel_estimate": self._turns_rate_to_mm(self.vel_estimate_turns),
             "pos_error": self._pos_error_mm(),
             "iq_measured": self.iq_measured,
             "iq_setpoint": self.iq_setpoint,
@@ -216,6 +216,14 @@ class ODriveAxis:
         if self.rail is None:
             return turns
         return self.rail.stepper.turns_to_mm(turns)
+
+    def _turns_rate_to_mm(self, turns_rate):
+        # Scale-only conversion for velocities: the coordinate-resync
+        # offset used by _turns_to_mm applies to positions, not rates
+        if self.rail is None:
+            return turns_rate
+        stepper = self.rail.stepper
+        return turns_rate * stepper.rotation_distance / stepper.direction
 
     def _pos_error_mm(self):
         if self.rail is None:
@@ -789,7 +797,26 @@ class ODriveAxis:
                     "ODrive axis %s is bound to a homed rail; use normal"
                     " toolhead moves instead of ODRIVE_AXIS_MOVE" % (self.name,)
                 )
-        pos_mm = gcmd.get_float("POS")
+        pos_mm = gcmd.get_float("POS", None)
+        pos_turns_param = gcmd.get_float("TURNS", None)
+        if (pos_mm is None) == (pos_turns_param is None):
+            raise gcmd.error(
+                "Specify exactly one of POS (mm) or TURNS (motor turns)"
+            )
+        if pos_mm is not None:
+            if self.rail is None:
+                # Without a bound rail there is no rotation_distance to
+                # convert mm to motor turns -- silently sending mm as
+                # turns would move an arbitrary (likely huge) distance
+                raise gcmd.error(
+                    "ODrive axis %s is not bound to a rail; use TURNS="
+                    " to move in raw motor turns" % (self.name,)
+                )
+            pos_turns = self.rail.stepper.mm_to_turns(pos_mm)
+            target_desc = "%.4fmm" % (pos_mm,)
+        else:
+            pos_turns = pos_turns_param
+            target_desc = "%.4f turns" % (pos_turns_param,)
         vel = gcmd.get_float("VEL", None, above=0.0)
         t = self.board.transport
         if vel is not None:
@@ -798,18 +825,12 @@ class ODriveAxis:
             self.prop("controller.config.input_mode"),
             properties.INPUT_MODE_TRAP_TRAJ,
         )
-        pos_turns = self._mm_to_turns(pos_mm)
         t.write_property(self.prop("controller.input_pos"), pos_turns)
         self.last_setpoint_turns = pos_turns
         gcmd.respond_info(
-            "ODrive axis %s: moving to %.4fmm (input_mode stays TRAP_TRAJ"
-            " until the next ODRIVE_ARM)" % (self.name, pos_mm)
+            "ODrive axis %s: moving to %s (input_mode stays TRAP_TRAJ"
+            " until the next ODRIVE_ARM)" % (self.name, target_desc)
         )
-
-    def _mm_to_turns(self, pos_mm):
-        if self.rail is not None:
-            return self.rail.stepper.mm_to_turns(pos_mm)
-        return pos_mm
 
     cmd_ODRIVE_WATCHDOG_help = "Diagnostic override of the ODrive watchdog"
 
