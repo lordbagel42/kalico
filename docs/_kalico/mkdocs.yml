@@ -140,6 +140,7 @@ nav:
   - Developer Documentation:
     - Code_Overview.md
     - Kinematics.md
+    - Colinear_Tripteron.md
     - Protocol.md
     - API_Server.md
     - MCU_Commands.md

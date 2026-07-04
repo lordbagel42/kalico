@@ -25,12 +25,19 @@ class ColinearTripteronKinematics:
         g_y = math.cos(math.radians(gamma_rot)) * t
         self.coeffs = (a_x, a_y, b_x, b_y, g_x, g_y)
         # Check that the tower geometry is non-degenerate
-        det = (a_y * b_x - g_y * b_x - a_x * b_y
-               - a_y * g_x + b_y * g_x + a_x * g_y)
+        det = (
+            a_y * b_x
+            - g_y * b_x
+            - a_x * b_y
+            - a_y * g_x
+            + b_y * g_x
+            + a_x * g_y
+        )
         if abs(det) < 1e-10:
             raise config.error(
                 "Colinear tripteron tower geometry is degenerate"
-                " (determinant ~ 0)")
+                " (determinant ~ 0)"
+            )
         self.det = det
         # Read workspace limits
         print_radius = config.getfloat("print_radius", above=0.0)
@@ -39,27 +46,33 @@ class ColinearTripteronKinematics:
         # Setup tower rails (stepper_a, stepper_b, stepper_c)
         # Tower rails don't need position_min/max (like delta)
         stepper_configs = [config.getsection("stepper_" + a) for a in "abc"]
-        rail_a = stepper.LookupMultiRail(stepper_configs[0],
-                                         need_position_minmax=False)
+        rail_a = stepper.LookupMultiRail(
+            stepper_configs[0], need_position_minmax=False
+        )
         a_endstop = rail_a.get_homing_info().position_endstop
         rail_b = stepper.LookupMultiRail(
-            stepper_configs[1], need_position_minmax=False,
-            default_position_endstop=a_endstop)
+            stepper_configs[1],
+            need_position_minmax=False,
+            default_position_endstop=a_endstop,
+        )
         rail_c = stepper.LookupMultiRail(
-            stepper_configs[2], need_position_minmax=False,
-            default_position_endstop=a_endstop)
+            stepper_configs[2],
+            need_position_minmax=False,
+            default_position_endstop=a_endstop,
+        )
         self.rails = [rail_a, rail_b, rail_c]
         # Compute home position via forward kinematics from endstop positions
-        endstops = [rail.get_homing_info().position_endstop
-                    for rail in self.rails]
+        endstops = [
+            rail.get_homing_info().position_endstop for rail in self.rails
+        ]
         ea, eb, ec = endstops
-        home_x = (ea * (g_y - b_y) + eb * (a_y - g_y)
-                  + ec * (b_y - a_y)) / det
-        home_y = (ea * (g_x - b_x) + eb * (a_x - g_x)
-                  + ec * (b_x - a_x)) / det
-        home_z = (ea * (b_y * g_x - b_x * g_y)
-                  + eb * (a_x * g_y - a_y * g_x)
-                  + ec * (a_y * b_x - a_x * b_y)) / det
+        home_x = (ea * (g_y - b_y) + eb * (a_y - g_y) + ec * (b_y - a_y)) / det
+        home_y = (ea * (g_x - b_x) + eb * (a_x - g_x) + ec * (b_x - a_x)) / det
+        home_z = (
+            ea * (b_y * g_x - b_x * g_y)
+            + eb * (a_x * g_y - a_y * g_x)
+            + ec * (a_y * b_x - a_x * b_y)
+        ) / det
         self.home_position = (home_x, home_y, home_z)
         self.max_z = home_z
         # Setup itersolve for each rail
@@ -75,13 +88,16 @@ class ColinearTripteronKinematics:
         # endstops simultaneously, and the trdispatch mechanism ensures all
         # steppers stop when any endstop triggers.
         config.get_printer().register_event_handler(
-            "stepper_enable:motor_off", self._motor_off)
+            "stepper_enable:motor_off", self._motor_off
+        )
         # Setup boundary checks
         max_velocity, max_accel = toolhead.get_max_velocity()
         self.max_z_velocity = config.getfloat(
-            "max_z_velocity", max_velocity, above=0.0, maxval=max_velocity)
+            "max_z_velocity", max_velocity, above=0.0, maxval=max_velocity
+        )
         self.max_z_accel = config.getfloat(
-            "max_z_accel", max_accel, above=0.0, maxval=max_accel)
+            "max_z_accel", max_accel, above=0.0, maxval=max_accel
+        )
         self.need_home = True
         max_xy = print_radius
         self.axes_min = toolhead.Coord(-max_xy, -max_xy, self.min_z, 0.0)
@@ -98,9 +114,11 @@ class ColinearTripteronKinematics:
         det = self.det
         x = (a * (g_y - b_y) + b * (a_y - g_y) + c * (b_y - a_y)) / det
         y = (a * (g_x - b_x) + b * (a_x - g_x) + c * (b_x - a_x)) / det
-        z = (a * (b_y * g_x - b_x * g_y)
-             + b * (a_x * g_y - a_y * g_x)
-             + c * (a_y * b_x - a_x * b_y)) / det
+        z = (
+            a * (b_y * g_x - b_x * g_y)
+            + b * (a_x * g_y - a_y * g_x)
+            + c * (a_y * b_x - a_x * b_y)
+        ) / det
         return [x, y, z]
 
     def set_position(self, newpos, homing_axes):
@@ -130,7 +148,7 @@ class ColinearTripteronKinematics:
         if self.need_home:
             raise move.move_error("Must home axis first")
         end_pos = move.end_pos
-        end_xy2 = end_pos[0]**2 + end_pos[1]**2
+        end_xy2 = end_pos[0] ** 2 + end_pos[1] ** 2
         if end_xy2 > self.max_xy2:
             raise move.move_error()
         if end_pos[2] < self.min_z or end_pos[2] > self.max_z:
@@ -138,7 +156,8 @@ class ColinearTripteronKinematics:
         if move.axes_d[2]:
             z_ratio = move.move_d / abs(move.axes_d[2])
             move.limit_speed(
-                self.max_z_velocity * z_ratio, self.max_z_accel * z_ratio)
+                self.max_z_velocity * z_ratio, self.max_z_accel * z_ratio
+            )
 
     def get_status(self, eventtime):
         return {
