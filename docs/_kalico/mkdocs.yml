@@ -141,6 +141,8 @@ nav:
     - Code_Overview.md
     - Kinematics.md
     - Colinear_Tripteron.md
+    - ODrive_Implementation_Spec.md
+    - ODrive_Mainsail_Integration_Plan.md
     - Protocol.md
     - API_Server.md
     - MCU_Commands.md
