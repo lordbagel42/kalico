@@ -1144,6 +1144,9 @@ control:
 #   not recommended to set this unless there is an electrical
 #   requirement to switch the heater faster than 10 times a second.
 #   The default is 0.100 seconds.
+#lost_update_tolerance: 2
+#   Maximum number of consecutive sensor lost samples that can be
+#   recovered from.
 #min_extrude_temp: 170
 #   The minimum temperature (in Celsius) at which extruder move
 #   commands may be issued. The default is 170 Celsius.
@@ -1164,13 +1167,16 @@ per_move_pressure_advance: False
 #
 #   If: control: dual_loop_pid
 #inner_sensor_name:
-#   The temperature_sensor name of a second sensor to use for temperature
-#   control with 'dual_loop_pid'. This sensor will limit the heater power
-#   to not allow the temperature to exceed the 'inner_max_temp' value.
+#   The temperature_sensor name of a second sensor used by
+#   'dual_loop_pid' for the inner PID loop.
 #
 #   If: control: dual_loop_pid
+#inner_target_temp:
+#   The target temperature for the inner PID loop. During calibration,
+#   the temperature will oscillate above and below this value. This
+#   behavior is expected and does not indicate a safety failure.
 #inner_max_temp:
-#   The maximum temperature target that the inner sensor will allow.
+#   Deprecated alias for inner_target_temp.
 #
 #   If control: dual_loop_pid
 #inner_pid_Kp:
@@ -1179,9 +1185,9 @@ per_move_pressure_advance: False
 #   'dual_loop_pid' control uses two PID loops to control the temperature.
 #   The inner(secondary) PID loop controls the temperature directly. The
 #   primary PID loop controls the power to the secondary PID loop. This
-#   allows the primary PID loop to be tuned for temperature control, while
-#   the secondary PID loop can be tuned for power control, not exceeding
-#   the temperature limit set on 'inner_max_temp'.
+#   allows the primary PID loop to be tuned for temperature control,
+#   while the secondary PID loop can be tuned for power control while
+#   tracking 'inner_target_temp'.
 #   The primary sensor is positioned close where the temperature
 #   measurament should be more accurate (e.g. on the bed surface). The
 #   secondary sensor is positioned where the temperature measurament
@@ -1563,6 +1569,20 @@ extended [G-Code command](G-Codes.md#z_tilt) becomes available.
 #use_adjustments: False
 #   If set to true it uses the behaviour described by trails here:
 #   https://github.com/Trails5000/klipper/commit/47b5a91f96761961e693031fa514a0025a877117
+#alternate_probe_direction: False
+#   If True, alternate the physical probing direction between full
+#   probing passes/retries. The first pass uses the configured point
+#   order, and the next pass probes the same points in reverse order.
+#   The measured results are still returned in the configured logical
+#   point order, so the z_tilt calculations are unchanged. This can
+#   reduce repeated twisting of Bowden tubes, filament paths, umbilicals,
+#   and cable bundles on large-format machines. It also avoids the extra
+#   travel move from the last point back to the first point between retry
+#   passes. The default is False.
+#start_reverse: False
+#   If True and alternate_probe_direction is enabled, start the first
+#   probing pass in reverse order. Subsequent retry passes will continue
+#   alternating direction. The default is False.
 ```
 
 #### [z_tilt_ng]
@@ -1707,6 +1727,20 @@ Where x is the 0, 0 point on the bed
 #   By default, the first Z movement to reach `horizontal_move_z` uses `speed`.
 #   Set `enforce_lift_speed` to True to enforce the `lift_speed`.
 #   The default is False.
+#alternate_probe_direction: False
+#   If True, alternate the physical probing direction between full
+#   probing passes/retries. The first pass uses the configured point
+#   order, and the next pass probes the same points in reverse order.
+#   The measured results are still returned in the configured logical
+#   point order, so the quad gantry leveling calculations are unchanged.
+#   This can reduce repeated twisting of Bowden tubes, filament paths,
+#   umbilicals, and cable bundles on large-format machines. It also
+#   avoids the extra travel move from the last point back to the first
+#   point between retry passes. The default is False.
+#start_reverse: False
+#   If True and alternate_probe_direction is enabled, start the first
+#   probing pass in reverse order. Subsequent retry passes will continue
+#   alternating direction. The default is False.
 ```
 
 ### [skew_correction]
@@ -3316,6 +3350,7 @@ target temperature.
 #pid_Ki:
 #pid_Kd:
 #pwm_cycle_time:
+#lost_update_tolerance:
 #min_temp:
 #max_temp:
 #   See the "extruder" section for the definition of the above
@@ -3463,9 +3498,9 @@ sensor_type: BME280
 #   above parameters.
 ```
 
-### AHT10/AHT20/AHT21 temperature sensor
+### AHT10/AHT20/AHT21/AHT30 temperature sensor
 
-AHT10/AHT20/AHT21 two wire interface (I2C) environmental sensors.
+AHT10/AHT20/AHT21/AHT30 two wire interface (I2C) environmental sensors.
 Note that these sensors are not intended for use with extruders and
 heater beds, but rather for monitoring ambient temperature (C) and
 relative humidity. See
@@ -3474,7 +3509,8 @@ that may be used to report humidity in addition to temperature.
 
 ```
 sensor_type: AHT10
-#   Also use AHT10 for AHT20 and AHT21 sensors.
+#   Must be "AHT1X" , "AHT2X", "AHT3X"
+#   Some AHT20 sensors can use "AHT1X"
 #i2c_address:
 #   Default is 56 (0x38). Some AHT10 sensors give the option to use
 #   57 (0x39) by moving a resistor.
@@ -4830,6 +4866,7 @@ run_current:
 #driver_SEDN: 0
 #driver_SEIMIN: 0
 #driver_SFILT: 0
+#driver_SG4_THRS: 0
 #driver_SG4_ANGLE_OFFSET: 1
 #   Set the given register during the configuration of the TMC2240
 #   chip. This may be used to set custom motor parameters. The
@@ -4842,8 +4879,8 @@ run_current:
 #   is "active low" and is thus normally prefaced with "^!". Setting
 #   this creates a "tmc2240_stepper_x:virtual_endstop" virtual pin
 #   which may be used as the stepper's endstop_pin. Doing this enables
-#   "sensorless homing". (Be sure to also set driver_SGT to an
-#   appropriate sensitivity value.) The default is to not enable
+#   "sensorless homing". (Be sure to also set driver_SGT OR driver_SG4_THRS
+#   to an appropriate sensitivity value.) The default is to not enable
 #   sensorless homing.
 ```
 
