@@ -79,37 +79,66 @@ implementation spec.
 
 ## Panel design (phased Mainsail PRs)
 
-Each phase is an independently mergeable Mainsail PR, mirroring how
-Mainsail actually shipped past device-specific features (TMC status and
-Spoolman integration landed as separate, incremental PRs rather than one
-large change).
+Two distinct surfaces, not one:
 
-### Phase M1 — Status card
+- **Dashboard card** — a small, glanceable summary widget among the
+  user's other dashboard panels (matching the visual weight of Mainsail's
+  existing single-line status widgets, e.g. the MCU or webcam status
+  chips): board name, one connection-state badge, and nothing else.
+  Anyone who wants more detail clicks through to the ODrive page below.
+- **Dedicated ODrive page** — a permanent left-sidebar nav entry (not a
+  dashboard-only, opt-in widget) that hosts everything with real detail:
+  full per-axis status, calibration, tuning, and diagnostics. This is
+  where Phase M1's full detail view and all of M2-M4 live.
 
-A status card per configured ODrive board (and its axes), following the
-visual/structural pattern of Mainsail's existing TMC driver status
-display: connection state, firmware/hardware version, bus voltage,
-per-axis state (idle / closed-loop / error) with color-coded badges,
-decoded error names (not raw bitmasks — the Kalico module already does
-this decoding server-side via `ODRIVE_ERRORS`/`get_status`), and
-temperature readouts.
+This split exists because a dashboard is a multi-widget, glanceable
+surface — cramming per-axis temperatures, error decode, and (eventually)
+a calibration wizard into one card among several competes for space and
+attention with everything else on the dashboard. A permanent nav page has
+the room, and unlike an opt-in dashboard widget it's always there without
+the user having to know to add it.
 
-**Visibility**: gated on the presence of `odrive*` objects in
-`printer.objects.list` — the same feature-detection mechanism Mainsail
-already uses to decide whether to show TMC panels, the exclude-object
-UI, or the Spoolman card. No configuration flag is needed on the
-Mainsail side; the panel simply doesn't render for printers without an
+Each phase below is still an independently mergeable Mainsail PR,
+mirroring how Mainsail actually shipped past device-specific features
+(TMC status and Spoolman integration landed as separate, incremental PRs
+rather than one large change).
+
+### Phase M1 — Status surfaces (shipped)
+
+Split across two PRs:
+
+- The **dashboard card** shows only a per-board summary: board name and
+  a single color-coded connection-state badge (`ready` / `configuring` /
+  `error` / `disconnected`, etc.). No per-axis detail, no error list, no
+  temperatures — those belong on the ODrive page. (The dashboard card
+  originally shipped with full per-axis detail before the dedicated page
+  existed; simplify it down to this summary now that the page is the
+  detail surface.)
+- The **ODrive page** (`/odrive` in the left nav) shows the full detail
+  previously crammed into the dashboard card: per-board connection state,
+  firmware/hardware version, bus voltage, per-axis state (idle /
+  closed-loop / error) with color-coded badges, decoded error names (not
+  raw bitmasks — the Kalico module already does this decoding
+  server-side via `ODRIVE_ERRORS`/`get_status`), and temperature
+  readouts.
+
+**Visibility**: both surfaces are gated on the presence of `odrive*`
+objects in `printer.objects.list` — the same feature-detection mechanism
+Mainsail already uses to decide whether to show TMC panels, the
+exclude-object UI, or the Spoolman card. No configuration flag is needed
+on the Mainsail side; neither surface renders for printers without an
 `[odrive]` section.
 
-**Data source**: `printer.objects.subscribe` only. No new Moonraker
-endpoints.
+**Data source**: `printer.objects.subscribe` only, for both surfaces. No
+new Moonraker endpoints.
 
-### Phase M2 — Calibration wizard
+### Phase M2 — Calibration wizard (on the ODrive page)
 
-A guided, stepper-style UI that drives `ODRIVE_CALIBRATE` and displays
-its live progress. Because the wizard's entire state machine already
-exists server-side (the Kalico module emits progress via `respond_info`
-and exposes calibration flags — `calibrated`, `pre_calibrated_motor`,
+A guided, stepper-style UI, added to the ODrive page rather than the
+dashboard card, that drives `ODRIVE_CALIBRATE` and displays its live
+progress. Because the wizard's entire state machine already exists
+server-side (the Kalico module emits progress via `respond_info` and
+exposes calibration flags — `calibrated`, `pre_calibrated_motor`,
 `pre_calibrated_encoder`, `index_found` — via `get_status`), the Mainsail
 side is primarily a thin state-reflecting UI: a "Start Calibration"
 button issues `ODRIVE_CALIBRATE AXIS=... TYPE=full`, and the wizard's
@@ -124,13 +153,14 @@ inventing a new save-prompt component — the Kalico module already stages
 the calibration breadcrumb through `configfile.set` for exactly this
 reason.
 
-### Phase M3 — Tuning view
+### Phase M3 — Tuning view (on the ODrive page)
 
-Live-adjustable controls (sliders/number inputs) for `pos_gain`,
-`vel_gain`, `vel_integrator_gain`, `filter_bandwidth`, `current_lim`, and
-`vel_limit`, each issuing `ODRIVE_TUNE AXIS=... <FIELD>=<value>` on
-change (debounced), with a `SAVE=1` action wired to a "persist" button
-that also surfaces the same `save_config_pending` banner as M2.
+Live-adjustable controls (sliders/number inputs), added to the ODrive
+page, for `pos_gain`, `vel_gain`, `vel_integrator_gain`,
+`filter_bandwidth`, `current_lim`, and `vel_limit`, each issuing
+`ODRIVE_TUNE AXIS=... <FIELD>=<value>` on change (debounced), with a
+`SAVE=1` action wired to a "persist" button that also surfaces the same
+`save_config_pending` banner as M2.
 
 This phase also adds a live scope/chart (reusing Mainsail's existing
 temperature-graph charting components, which already handle rolling
@@ -139,14 +169,14 @@ plotting commanded position vs. estimated position and measured current
 — useful both for tuning feel and for diagnosing a following-error
 shutdown after the fact.
 
-### Phase M4 — Diagnostics
+### Phase M4 — Diagnostics (on the ODrive page)
 
-An error-history view and a raw property browser (`ODRIVE_READ` issued
-per row, populated in bulk via the `odrive/property_read` endpoint to
-avoid one gcode round-trip per field), aimed at advanced users and at
-clone boards where something in the firmware-tolerance layer needed to
-guess — the property browser gives a way to manually verify a value the
-automatic path couldn't confirm.
+An error-history view and a raw property browser, added to the ODrive
+page (`ODRIVE_READ` issued per row, populated in bulk via the
+`odrive/property_read` endpoint to avoid one gcode round-trip per field),
+aimed at advanced users and at clone boards where something in the
+firmware-tolerance layer needed to guess — the property browser gives a
+way to manually verify a value the automatic path couldn't confirm.
 
 ## Upstreaming requirements
 
