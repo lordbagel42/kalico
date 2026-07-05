@@ -81,11 +81,18 @@ implementation spec.
 
 Two distinct surfaces, not one:
 
-- **Dashboard card** — a small, glanceable summary widget among the
-  user's other dashboard panels (matching the visual weight of Mainsail's
-  existing single-line status widgets, e.g. the MCU or webcam status
-  chips): board name, one connection-state badge, and nothing else.
-  Anyone who wants more detail clicks through to the ODrive page below.
+- **Dashboard card** — a compact but informative summary widget among
+  the user's other dashboard panels: board name, one connection-state
+  badge, a single line of firmware/hardware version and bus voltage, and
+  one line per configured axis (name, a small state indicator, and an
+  error-count badge if the axis has active errors). High-level and
+  glanceable — a handful of short lines per board, not a redesign that
+  makes the card sprawl — but enough that a quick look at the dashboard
+  answers "is everything OK?" without a click-through. What it
+  deliberately omits: per-axis numeric telemetry (position/velocity/
+  current), decoded error *names* (just a count), gains, and
+  temperatures — those, plus calibration/tuning/diagnostics, are what
+  the ODrive page is for.
 - **Dedicated ODrive page** — a permanent left-sidebar nav entry (not a
   dashboard-only, opt-in widget) that hosts everything with real detail:
   full per-axis status, calibration, tuning, and diagnostics. This is
@@ -107,13 +114,15 @@ rather than one large change).
 
 Split across two PRs:
 
-- The **dashboard card** shows only a per-board summary: board name and
-  a single color-coded connection-state badge (`ready` / `configuring` /
-  `error` / `disconnected`, etc.). No per-axis detail, no error list, no
-  temperatures — those belong on the ODrive page. (The dashboard card
-  originally shipped with full per-axis detail before the dedicated page
-  existed; simplify it down to this summary now that the page is the
-  detail surface.)
+- The **dashboard card** shows a per-board summary: board name, a
+  single color-coded connection-state badge (`ready` / `configuring` /
+  `error` / `disconnected`, etc.), a compact fw/hw version + bus-voltage
+  line, and one line per axis (name, small state indicator, error-count
+  badge if nonzero). No per-axis numeric telemetry, no decoded error
+  names, no temperatures, no gains — those belong on the ODrive page.
+  (The dashboard card briefly shipped with full per-axis detail, then
+  with *only* name+badge before settling here — this level balances
+  "detailed enough to be useful at a glance" against "doesn't sprawl.")
 - The **ODrive page** (`/odrive` in the left nav) shows the full detail
   previously crammed into the dashboard card: per-board connection state,
   firmware/hardware version, bus voltage, per-axis state (idle /
@@ -177,6 +186,15 @@ page (`ODRIVE_READ` issued per row, populated in bulk via the
 aimed at advanced users and at clone boards where something in the
 firmware-tolerance layer needed to guess — the property browser gives a
 way to manually verify a value the automatic path couldn't confirm.
+
+**Possible future extension (not yet scoped as its own phase):** an
+in-browser Python REPL on the ODrive page for ad hoc diagnostics —
+useful for advanced users who want to script against `odrivetool`-style
+property access or prototype a check before it's worth turning into a
+proper `ODRIVE_*` gcode command. This would need its own design pass
+(most plausibly a `klippy`-side webhooks endpoint exposing a sandboxed
+eval loop, surfaced through a terminal-style Mainsail component) rather
+than being folded into the property browser above.
 
 ## Upstreaming requirements
 
