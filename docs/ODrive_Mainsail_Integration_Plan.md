@@ -187,14 +187,82 @@ aimed at advanced users and at clone boards where something in the
 firmware-tolerance layer needed to guess — the property browser gives a
 way to manually verify a value the automatic path couldn't confirm.
 
-**Possible future extension (not yet scoped as its own phase):** an
-in-browser Python REPL on the ODrive page for ad hoc diagnostics —
-useful for advanced users who want to script against `odrivetool`-style
-property access or prototype a check before it's worth turning into a
-proper `ODRIVE_*` gcode command. This would need its own design pass
-(most plausibly a `klippy`-side webhooks endpoint exposing a sandboxed
-eval loop, surfaced through a terminal-style Mainsail component) rather
-than being folded into the property browser above.
+### Phase M5 — In-browser Python REPL (on the ODrive page)
+
+A real, stateful Python REPL per board, terminal-style, for ad hoc
+diagnostics — driving encoder/calibration debugging that the fixed
+property browser and gcode command set can't anticipate every case of.
+Deliberately **not** sandboxed: attempting to sandbox arbitrary Python
+execution is a well-known losing battle (see the many documented escapes
+of `RestrictedPython`, `pysandbox`, and similar), and Kalico already has
+this exact trust model elsewhere — `klippy/extras/gcode_macro.py` calls
+raw `exec()` on Jinja2-templated macro bodies today, with no sandbox.
+Whoever can edit `printer.cfg` or reach Moonraker's API can already run
+arbitrary Python in the Klippy process; this REPL doesn't introduce a
+new trust boundary, it just exposes the one that already exists through
+a more convenient interface. It is exactly as dangerous as SSH access to
+the host, and should be documented as such, not hidden behind a false
+sense of safety.
+
+**Backend**: a real Python console via the stdlib `code` module
+(`code.InteractiveConsole`), not a hand-rolled expression parser — this
+gets correct multi-line-statement buffering, expression-vs-statement
+handling, and traceback formatting for free, the same machinery behind
+the standard `python3` REPL and tools like Jupyter kernels. One console
+instance per board, lazily created and kept alive across requests (state
+persists between REPL lines, exactly like a real shell — `x = 5` in one
+request, `x` in the next). `odrive/repl_exec` (mux endpoint, keyed like
+every other odrive webhook) takes one line of input at a time (never a
+whole multi-line block — the frontend sends what the user typed on
+pressing Enter, exactly how a real terminal would), calls
+`console.push(line)`, and returns `{"output": "...", "more": bool}`:
+`output` is everything written to stdout/stderr during that push
+(captured via `contextlib.redirect_stdout`/`redirect_stderr`, not by
+overriding `InteractiveInterpreter.write`), `more` is `push()`'s own
+return value — `True` means the statement is incomplete (open block,
+unclosed paren, etc.) and the frontend should show a continuation prompt
+(`...`) instead of a fresh one (`>>>`), identical to a real Python shell.
+A companion `odrive/repl_reset` endpoint discards the console and its
+namespace, for recovering from a REPL session that's gotten into a
+confusing state.
+
+**Namespace** pre-populated in each console, favoring genuine debugging
+power over minimalism (per the "not sandboxed, not artificially
+restricted" framing above) — bound fresh each time the console is
+created:
+
+- `board` — the live `ODriveBoard` object for this `[odrive <name>]`
+  section (`.transport`, `.axes`, `.vbus_voltage`, `.connected`, ...).
+- `axes` — `{name: axis}` for every `[odrive_axis]` bound to this board;
+  `axis0`/`axis1` also bound directly as shortcuts mirroring
+  `odrivetool`'s `odrv0.axis0` ergonomics.
+- `read(prop)` / `write(prop, value)` — thin wrappers around
+  `board.transport.read_property_sync`/`write_property_sync`, since
+  typing `axis0.motor.config.pole_pairs` as a *property path string* to
+  `read()`/`write()` is what you actually want when poking at raw ODrive
+  properties (the Python attribute `axis0.motor` is Kalico's own wrapper
+  object, not the ODrive's raw property tree — `read`/`write` are the
+  bridge between the two, and exist because without them the REPL would
+  otherwise be missing the one thing `odrivetool`'s shell is actually
+  used for).
+- `printer` — the Klippy `Printer` object (`printer.lookup_object(...)`,
+  etc.), for anyone who wants to go beyond the ODrive module entirely.
+  Standard builtins are available as always in any Python `exec`.
+
+**Deliberate scope note**: this bypasses the console-audit-trail
+philosophy stated for every other ODrive action in this spec ("everything
+that mutates state stays gcode-only... keeping every state change visible
+and auditable in the console history"). A `write()` call from the REPL
+does not appear in the gcode console. This is a conscious, documented
+exception for this one feature, not an oversight — treat it the same way
+you'd treat someone SSHing in and running `odrivetool` by hand, because
+that's genuinely what it's equivalent to.
+
+**Frontend**: a terminal-style component on the ODrive page (scrollback
+of `>>> <input>` / `... <input>` lines interleaved with output, an input
+box, up/down history navigation) sending one line per `Enter` to
+`odrive/repl_exec` and rendering the response; a "Reset" button calling
+`odrive/repl_reset`.
 
 ## Upstreaming requirements
 
