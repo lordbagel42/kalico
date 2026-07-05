@@ -1652,6 +1652,15 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#phase-m5-in-browser-python-repl-on-the-odrive-page" class="md-nav__link">
+    <span class="md-ellipsis">
+      Phase M5 — In-browser Python REPL (on the ODrive page)
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -2282,6 +2291,15 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#phase-m5-in-browser-python-repl-on-the-odrive-page" class="md-nav__link">
+    <span class="md-ellipsis">
+      Phase M5 — In-browser Python REPL (on the ODrive page)
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -2497,14 +2515,78 @@ page (<code>ODRIVE_READ</code> issued per row, populated in bulk via the
 aimed at advanced users and at clone boards where something in the
 firmware-tolerance layer needed to guess — the property browser gives a
 way to manually verify a value the automatic path couldn't confirm.</p>
-<p><strong>Possible future extension (not yet scoped as its own phase):</strong> an
-in-browser Python REPL on the ODrive page for ad hoc diagnostics —
-useful for advanced users who want to script against <code>odrivetool</code>-style
-property access or prototype a check before it's worth turning into a
-proper <code>ODRIVE_*</code> gcode command. This would need its own design pass
-(most plausibly a <code>klippy</code>-side webhooks endpoint exposing a sandboxed
-eval loop, surfaced through a terminal-style Mainsail component) rather
-than being folded into the property browser above.</p>
+<h3 id="phase-m5-in-browser-python-repl-on-the-odrive-page">Phase M5 — In-browser Python REPL (on the ODrive page)<a class="headerlink" href="#phase-m5-in-browser-python-repl-on-the-odrive-page" title="Permanent link">&para;</a></h3>
+<p>A real, stateful Python REPL per board, terminal-style, for ad hoc
+diagnostics — driving encoder/calibration debugging that the fixed
+property browser and gcode command set can't anticipate every case of.
+Deliberately <strong>not</strong> sandboxed: attempting to sandbox arbitrary Python
+execution is a well-known losing battle (see the many documented escapes
+of <code>RestrictedPython</code>, <code>pysandbox</code>, and similar), and Kalico already has
+this exact trust model elsewhere — <code>klippy/extras/gcode_macro.py</code> calls
+raw <code>exec()</code> on Jinja2-templated macro bodies today, with no sandbox.
+Whoever can edit <code>printer.cfg</code> or reach Moonraker's API can already run
+arbitrary Python in the Klippy process; this REPL doesn't introduce a
+new trust boundary, it just exposes the one that already exists through
+a more convenient interface. It is exactly as dangerous as SSH access to
+the host, and should be documented as such, not hidden behind a false
+sense of safety.</p>
+<p><strong>Backend</strong>: a real Python console via the stdlib <code>code</code> module
+(<code>code.InteractiveConsole</code>), not a hand-rolled expression parser — this
+gets correct multi-line-statement buffering, expression-vs-statement
+handling, and traceback formatting for free, the same machinery behind
+the standard <code>python3</code> REPL and tools like Jupyter kernels. One console
+instance per board, lazily created and kept alive across requests (state
+persists between REPL lines, exactly like a real shell — <code>x = 5</code> in one
+request, <code>x</code> in the next). <code>odrive/repl_exec</code> (mux endpoint, keyed like
+every other odrive webhook) takes one line of input at a time (never a
+whole multi-line block — the frontend sends what the user typed on
+pressing Enter, exactly how a real terminal would), calls
+<code>console.push(line)</code>, and returns <code>{"output": "...", "more": bool}</code>:
+<code>output</code> is everything written to stdout/stderr during that push
+(captured via <code>contextlib.redirect_stdout</code>/<code>redirect_stderr</code>, not by
+overriding <code>InteractiveInterpreter.write</code>), <code>more</code> is <code>push()</code>'s own
+return value — <code>True</code> means the statement is incomplete (open block,
+unclosed paren, etc.) and the frontend should show a continuation prompt
+(<code>...</code>) instead of a fresh one (<code>&gt;&gt;&gt;</code>), identical to a real Python shell.
+A companion <code>odrive/repl_reset</code> endpoint discards the console and its
+namespace, for recovering from a REPL session that's gotten into a
+confusing state.</p>
+<p><strong>Namespace</strong> pre-populated in each console, favoring genuine debugging
+power over minimalism (per the "not sandboxed, not artificially
+restricted" framing above) — bound fresh each time the console is
+created:</p>
+<ul>
+<li><code>board</code> — the live <code>ODriveBoard</code> object for this <code>[odrive &lt;name&gt;]</code>
+  section (<code>.transport</code>, <code>.axes</code>, <code>.vbus_voltage</code>, <code>.connected</code>, ...).</li>
+<li><code>axes</code> — <code>{name: axis}</code> for every <code>[odrive_axis]</code> bound to this board;
+  <code>axis0</code>/<code>axis1</code> also bound directly as shortcuts mirroring
+  <code>odrivetool</code>'s <code>odrv0.axis0</code> ergonomics.</li>
+<li><code>read(prop)</code> / <code>write(prop, value)</code> — thin wrappers around
+  <code>board.transport.read_property_sync</code>/<code>write_property_sync</code>, since
+  typing <code>axis0.motor.config.pole_pairs</code> as a <em>property path string</em> to
+  <code>read()</code>/<code>write()</code> is what you actually want when poking at raw ODrive
+  properties (the Python attribute <code>axis0.motor</code> is Kalico's own wrapper
+  object, not the ODrive's raw property tree — <code>read</code>/<code>write</code> are the
+  bridge between the two, and exist because without them the REPL would
+  otherwise be missing the one thing <code>odrivetool</code>'s shell is actually
+  used for).</li>
+<li><code>printer</code> — the Klippy <code>Printer</code> object (<code>printer.lookup_object(...)</code>,
+  etc.), for anyone who wants to go beyond the ODrive module entirely.
+  Standard builtins are available as always in any Python <code>exec</code>.</li>
+</ul>
+<p><strong>Deliberate scope note</strong>: this bypasses the console-audit-trail
+philosophy stated for every other ODrive action in this spec ("everything
+that mutates state stays gcode-only... keeping every state change visible
+and auditable in the console history"). A <code>write()</code> call from the REPL
+does not appear in the gcode console. This is a conscious, documented
+exception for this one feature, not an oversight — treat it the same way
+you'd treat someone SSHing in and running <code>odrivetool</code> by hand, because
+that's genuinely what it's equivalent to.</p>
+<p><strong>Frontend</strong>: a terminal-style component on the ODrive page (scrollback
+of <code>&gt;&gt;&gt; &lt;input&gt;</code> / <code>... &lt;input&gt;</code> lines interleaved with output, an input
+box, up/down history navigation) sending one line per <code>Enter</code> to
+<code>odrive/repl_exec</code> and rendering the response; a "Reset" button calling
+<code>odrive/repl_reset</code>.</p>
 <h2 id="upstreaming-requirements">Upstreaming requirements<a class="headerlink" href="#upstreaming-requirements" title="Permanent link">&para;</a></h2>
 <p>Each phase, submitted as a Mainsail PR, needs:</p>
 <ul>
