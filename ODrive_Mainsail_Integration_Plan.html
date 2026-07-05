@@ -1617,36 +1617,36 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#phase-m1-status-card" class="md-nav__link">
+  <a href="#phase-m1-status-surfaces-shipped" class="md-nav__link">
     <span class="md-ellipsis">
-      Phase M1 — Status card
+      Phase M1 — Status surfaces (shipped)
     </span>
   </a>
   
 </li>
         
           <li class="md-nav__item">
-  <a href="#phase-m2-calibration-wizard" class="md-nav__link">
+  <a href="#phase-m2-calibration-wizard-on-the-odrive-page" class="md-nav__link">
     <span class="md-ellipsis">
-      Phase M2 — Calibration wizard
+      Phase M2 — Calibration wizard (on the ODrive page)
     </span>
   </a>
   
 </li>
         
           <li class="md-nav__item">
-  <a href="#phase-m3-tuning-view" class="md-nav__link">
+  <a href="#phase-m3-tuning-view-on-the-odrive-page" class="md-nav__link">
     <span class="md-ellipsis">
-      Phase M3 — Tuning view
+      Phase M3 — Tuning view (on the ODrive page)
     </span>
   </a>
   
 </li>
         
           <li class="md-nav__item">
-  <a href="#phase-m4-diagnostics" class="md-nav__link">
+  <a href="#phase-m4-diagnostics-on-the-odrive-page" class="md-nav__link">
     <span class="md-ellipsis">
-      Phase M4 — Diagnostics
+      Phase M4 — Diagnostics (on the ODrive page)
     </span>
   </a>
   
@@ -2247,36 +2247,36 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#phase-m1-status-card" class="md-nav__link">
+  <a href="#phase-m1-status-surfaces-shipped" class="md-nav__link">
     <span class="md-ellipsis">
-      Phase M1 — Status card
+      Phase M1 — Status surfaces (shipped)
     </span>
   </a>
   
 </li>
         
           <li class="md-nav__item">
-  <a href="#phase-m2-calibration-wizard" class="md-nav__link">
+  <a href="#phase-m2-calibration-wizard-on-the-odrive-page" class="md-nav__link">
     <span class="md-ellipsis">
-      Phase M2 — Calibration wizard
+      Phase M2 — Calibration wizard (on the ODrive page)
     </span>
   </a>
   
 </li>
         
           <li class="md-nav__item">
-  <a href="#phase-m3-tuning-view" class="md-nav__link">
+  <a href="#phase-m3-tuning-view-on-the-odrive-page" class="md-nav__link">
     <span class="md-ellipsis">
-      Phase M3 — Tuning view
+      Phase M3 — Tuning view (on the ODrive page)
     </span>
   </a>
   
 </li>
         
           <li class="md-nav__item">
-  <a href="#phase-m4-diagnostics" class="md-nav__link">
+  <a href="#phase-m4-diagnostics-on-the-odrive-page" class="md-nav__link">
     <span class="md-ellipsis">
-      Phase M4 — Diagnostics
+      Phase M4 — Diagnostics (on the ODrive page)
     </span>
   </a>
   
@@ -2402,31 +2402,60 @@ genuinely cannot express (for example, persisting calibration
 history across firmware reflashes) — not by anything in the current
 implementation spec.</p>
 <h2 id="panel-design-phased-mainsail-prs">Panel design (phased Mainsail PRs)<a class="headerlink" href="#panel-design-phased-mainsail-prs" title="Permanent link">&para;</a></h2>
-<p>Each phase is an independently mergeable Mainsail PR, mirroring how
-Mainsail actually shipped past device-specific features (TMC status and
-Spoolman integration landed as separate, incremental PRs rather than one
-large change).</p>
-<h3 id="phase-m1-status-card">Phase M1 — Status card<a class="headerlink" href="#phase-m1-status-card" title="Permanent link">&para;</a></h3>
-<p>A status card per configured ODrive board (and its axes), following the
-visual/structural pattern of Mainsail's existing TMC driver status
-display: connection state, firmware/hardware version, bus voltage,
-per-axis state (idle / closed-loop / error) with color-coded badges,
-decoded error names (not raw bitmasks — the Kalico module already does
-this decoding server-side via <code>ODRIVE_ERRORS</code>/<code>get_status</code>), and
-temperature readouts.</p>
-<p><strong>Visibility</strong>: gated on the presence of <code>odrive*</code> objects in
-<code>printer.objects.list</code> — the same feature-detection mechanism Mainsail
-already uses to decide whether to show TMC panels, the exclude-object
-UI, or the Spoolman card. No configuration flag is needed on the
-Mainsail side; the panel simply doesn't render for printers without an
+<p>Two distinct surfaces, not one:</p>
+<ul>
+<li><strong>Dashboard card</strong> — a small, glanceable summary widget among the
+  user's other dashboard panels (matching the visual weight of Mainsail's
+  existing single-line status widgets, e.g. the MCU or webcam status
+  chips): board name, one connection-state badge, and nothing else.
+  Anyone who wants more detail clicks through to the ODrive page below.</li>
+<li><strong>Dedicated ODrive page</strong> — a permanent left-sidebar nav entry (not a
+  dashboard-only, opt-in widget) that hosts everything with real detail:
+  full per-axis status, calibration, tuning, and diagnostics. This is
+  where Phase M1's full detail view and all of M2-M4 live.</li>
+</ul>
+<p>This split exists because a dashboard is a multi-widget, glanceable
+surface — cramming per-axis temperatures, error decode, and (eventually)
+a calibration wizard into one card among several competes for space and
+attention with everything else on the dashboard. A permanent nav page has
+the room, and unlike an opt-in dashboard widget it's always there without
+the user having to know to add it.</p>
+<p>Each phase below is still an independently mergeable Mainsail PR,
+mirroring how Mainsail actually shipped past device-specific features
+(TMC status and Spoolman integration landed as separate, incremental PRs
+rather than one large change).</p>
+<h3 id="phase-m1-status-surfaces-shipped">Phase M1 — Status surfaces (shipped)<a class="headerlink" href="#phase-m1-status-surfaces-shipped" title="Permanent link">&para;</a></h3>
+<p>Split across two PRs:</p>
+<ul>
+<li>The <strong>dashboard card</strong> shows only a per-board summary: board name and
+  a single color-coded connection-state badge (<code>ready</code> / <code>configuring</code> /
+  <code>error</code> / <code>disconnected</code>, etc.). No per-axis detail, no error list, no
+  temperatures — those belong on the ODrive page. (The dashboard card
+  originally shipped with full per-axis detail before the dedicated page
+  existed; simplify it down to this summary now that the page is the
+  detail surface.)</li>
+<li>The <strong>ODrive page</strong> (<code>/odrive</code> in the left nav) shows the full detail
+  previously crammed into the dashboard card: per-board connection state,
+  firmware/hardware version, bus voltage, per-axis state (idle /
+  closed-loop / error) with color-coded badges, decoded error names (not
+  raw bitmasks — the Kalico module already does this decoding
+  server-side via <code>ODRIVE_ERRORS</code>/<code>get_status</code>), and temperature
+  readouts.</li>
+</ul>
+<p><strong>Visibility</strong>: both surfaces are gated on the presence of <code>odrive*</code>
+objects in <code>printer.objects.list</code> — the same feature-detection mechanism
+Mainsail already uses to decide whether to show TMC panels, the
+exclude-object UI, or the Spoolman card. No configuration flag is needed
+on the Mainsail side; neither surface renders for printers without an
 <code>[odrive]</code> section.</p>
-<p><strong>Data source</strong>: <code>printer.objects.subscribe</code> only. No new Moonraker
-endpoints.</p>
-<h3 id="phase-m2-calibration-wizard">Phase M2 — Calibration wizard<a class="headerlink" href="#phase-m2-calibration-wizard" title="Permanent link">&para;</a></h3>
-<p>A guided, stepper-style UI that drives <code>ODRIVE_CALIBRATE</code> and displays
-its live progress. Because the wizard's entire state machine already
-exists server-side (the Kalico module emits progress via <code>respond_info</code>
-and exposes calibration flags — <code>calibrated</code>, <code>pre_calibrated_motor</code>,
+<p><strong>Data source</strong>: <code>printer.objects.subscribe</code> only, for both surfaces. No
+new Moonraker endpoints.</p>
+<h3 id="phase-m2-calibration-wizard-on-the-odrive-page">Phase M2 — Calibration wizard (on the ODrive page)<a class="headerlink" href="#phase-m2-calibration-wizard-on-the-odrive-page" title="Permanent link">&para;</a></h3>
+<p>A guided, stepper-style UI, added to the ODrive page rather than the
+dashboard card, that drives <code>ODRIVE_CALIBRATE</code> and displays its live
+progress. Because the wizard's entire state machine already exists
+server-side (the Kalico module emits progress via <code>respond_info</code> and
+exposes calibration flags — <code>calibrated</code>, <code>pre_calibrated_motor</code>,
 <code>pre_calibrated_encoder</code>, <code>index_found</code> — via <code>get_status</code>), the Mainsail
 side is primarily a thin state-reflecting UI: a "Start Calibration"
 button issues <code>ODRIVE_CALIBRATE AXIS=... TYPE=full</code>, and the wizard's
@@ -2439,25 +2468,26 @@ view for anyone who wants it.</p>
 inventing a new save-prompt component — the Kalico module already stages
 the calibration breadcrumb through <code>configfile.set</code> for exactly this
 reason.</p>
-<h3 id="phase-m3-tuning-view">Phase M3 — Tuning view<a class="headerlink" href="#phase-m3-tuning-view" title="Permanent link">&para;</a></h3>
-<p>Live-adjustable controls (sliders/number inputs) for <code>pos_gain</code>,
-<code>vel_gain</code>, <code>vel_integrator_gain</code>, <code>filter_bandwidth</code>, <code>current_lim</code>, and
-<code>vel_limit</code>, each issuing <code>ODRIVE_TUNE AXIS=... &lt;FIELD&gt;=&lt;value&gt;</code> on
-change (debounced), with a <code>SAVE=1</code> action wired to a "persist" button
-that also surfaces the same <code>save_config_pending</code> banner as M2.</p>
+<h3 id="phase-m3-tuning-view-on-the-odrive-page">Phase M3 — Tuning view (on the ODrive page)<a class="headerlink" href="#phase-m3-tuning-view-on-the-odrive-page" title="Permanent link">&para;</a></h3>
+<p>Live-adjustable controls (sliders/number inputs), added to the ODrive
+page, for <code>pos_gain</code>, <code>vel_gain</code>, <code>vel_integrator_gain</code>,
+<code>filter_bandwidth</code>, <code>current_lim</code>, and <code>vel_limit</code>, each issuing
+<code>ODRIVE_TUNE AXIS=... &lt;FIELD&gt;=&lt;value&gt;</code> on change (debounced), with a
+<code>SAVE=1</code> action wired to a "persist" button that also surfaces the same
+<code>save_config_pending</code> banner as M2.</p>
 <p>This phase also adds a live scope/chart (reusing Mainsail's existing
 temperature-graph charting components, which already handle rolling
 time-series display) fed by the <code>odrive/telemetry</code> webhooks endpoint,
 plotting commanded position vs. estimated position and measured current
 — useful both for tuning feel and for diagnosing a following-error
 shutdown after the fact.</p>
-<h3 id="phase-m4-diagnostics">Phase M4 — Diagnostics<a class="headerlink" href="#phase-m4-diagnostics" title="Permanent link">&para;</a></h3>
-<p>An error-history view and a raw property browser (<code>ODRIVE_READ</code> issued
-per row, populated in bulk via the <code>odrive/property_read</code> endpoint to
-avoid one gcode round-trip per field), aimed at advanced users and at
-clone boards where something in the firmware-tolerance layer needed to
-guess — the property browser gives a way to manually verify a value the
-automatic path couldn't confirm.</p>
+<h3 id="phase-m4-diagnostics-on-the-odrive-page">Phase M4 — Diagnostics (on the ODrive page)<a class="headerlink" href="#phase-m4-diagnostics-on-the-odrive-page" title="Permanent link">&para;</a></h3>
+<p>An error-history view and a raw property browser, added to the ODrive
+page (<code>ODRIVE_READ</code> issued per row, populated in bulk via the
+<code>odrive/property_read</code> endpoint to avoid one gcode round-trip per field),
+aimed at advanced users and at clone boards where something in the
+firmware-tolerance layer needed to guess — the property browser gives a
+way to manually verify a value the automatic path couldn't confirm.</p>
 <h2 id="upstreaming-requirements">Upstreaming requirements<a class="headerlink" href="#upstreaming-requirements" title="Permanent link">&para;</a></h2>
 <p>Each phase, submitted as a Mainsail PR, needs:</p>
 <ul>
