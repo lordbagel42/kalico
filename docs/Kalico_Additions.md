@@ -26,6 +26,7 @@
 ## New Kalico Modules
 
 - [gcode_shell_command](./G-Code_Shell_Command.md) - Execute linux commands and scripts from within Kalico
+- [`[odrive]` / `[odrive_axis]`](./Config_Reference.md#odrive) - Drive a printer axis with an ODrive v3.6 (or clone) servo controller connected over USB, in closed-loop position mode, fully configurable/calibratable from gcode. See [ODrive_Implementation_Spec.md](./ODrive_Implementation_Spec.md) for the full design and [ODrive_Mainsail_Integration_Plan.md](./ODrive_Mainsail_Integration_Plan.md) for the browser GUI plan.
 
 ## Sensorless Homing
 
