@@ -342,7 +342,14 @@ class ODriveAxis:
             self.prop("controller.config.control_mode"),
             properties.CONTROL_MODE_POSITION_CONTROL,
         )
-        input_mode = properties.INPUT_MODE_CHOICES[self.input_mode_name]
+        # self.input_mode_name already holds the *resolved* enum value --
+        # config.getchoice() returns choices[matched_string], not the
+        # string itself -- so re-indexing INPUT_MODE_CHOICES with it here
+        # raised KeyError on every push_config()/ODRIVE_ARM call for any
+        # axis with at least one configured axis (caught by scripts/
+        # odrive_mock.py, which is the first thing to ever actually drive
+        # this code path end to end).
+        input_mode = self.input_mode_name
         t.write_property(self.prop("controller.config.input_mode"), input_mode)
         fb = self.filter_bandwidth
         if fb is None:
@@ -678,7 +685,14 @@ class ODriveAxis:
         # streamer's high-rate "p" setpoints require pos_filter/
         # passthrough instead -- switching TRAP_TRAJ back immediately
         # after writing input_pos would abort the trapezoidal profile.
-        input_mode = properties.INPUT_MODE_CHOICES[self.input_mode_name]
+        # self.input_mode_name already holds the *resolved* enum value --
+        # config.getchoice() returns choices[matched_string], not the
+        # string itself -- so re-indexing INPUT_MODE_CHOICES with it here
+        # raised KeyError on every push_config()/ODRIVE_ARM call for any
+        # axis with at least one configured axis (caught by scripts/
+        # odrive_mock.py, which is the first thing to ever actually drive
+        # this code path end to end).
+        input_mode = self.input_mode_name
         t.write_property(self.prop("controller.config.input_mode"), input_mode)
         self.last_setpoint_turns = self.pos_estimate_turns
         t.write_property(
