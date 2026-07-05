@@ -1851,6 +1851,15 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#anti-cogging-calibration-odrive_anticogging_calibrate" class="md-nav__link">
+    <span class="md-ellipsis">
+      Anti-cogging calibration (ODRIVE_ANTICOGGING_CALIBRATE)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#safety-interlocks-ux-visible" class="md-nav__link">
     <span class="md-ellipsis">
       Safety interlocks (UX-visible)
@@ -2823,6 +2832,15 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#anti-cogging-calibration-odrive_anticogging_calibrate" class="md-nav__link">
+    <span class="md-ellipsis">
+      Anti-cogging calibration (ODRIVE_ANTICOGGING_CALIBRATE)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#safety-interlocks-ux-visible" class="md-nav__link">
     <span class="md-ellipsis">
       Safety interlocks (UX-visible)
@@ -3705,6 +3723,7 @@ requires no separate design.</p>
 <span class="na">vel_limit</span><span class="o">:</span><span class="w">                                 </span><span class="c1"># default: derived from the bound rail&#39;s max_velocity</span>
 <span class="na">input_mode</span><span class="o">:</span><span class="w"> </span><span class="s">pos_filter</span><span class="w">                     </span><span class="c1"># pos_filter | passthrough</span>
 <span class="na">filter_bandwidth</span><span class="o">:</span><span class="w">                          </span><span class="c1"># default: 0.5 / sample_period</span>
+<span class="na">anticogging_enabled</span><span class="o">:</span><span class="w"> </span><span class="s">False</span><span class="w">                 </span><span class="c1"># apply the calibrated cogging-torque compensation map, once calibrated</span>
 <span class="c1"># --- safety ---</span>
 <span class="na">enable_thermistor</span><span class="o">:</span><span class="w"> </span><span class="s">False</span><span class="w">                   </span><span class="c1"># ODrive-side motor thermistor, if wired</span>
 <span class="na">motor_temp_limit</span><span class="o">:</span><span class="w"> </span><span class="s">90.0</span>
@@ -3757,6 +3776,11 @@ mux-command convention in <code>klippy/extras/tmc.py</code>.</p>
 <td><code>ODRIVE_CALIBRATE</code></td>
 <td><code>AXIS=</code> <code>TYPE=full\|motor\|encoder_offset\|index</code></td>
 <td>Runs the calibration wizard (below).</td>
+</tr>
+<tr>
+<td><code>ODRIVE_ANTICOGGING_CALIBRATE</code></td>
+<td><code>AXIS=</code> <code>[SAVE=1]</code></td>
+<td>Runs the on-device anti-cogging calibration sweep (below). Requires the axis to already be armed with motor and encoder calibration complete.</td>
 </tr>
 <tr>
 <td><code>ODRIVE_INDEX_SEARCH</code></td>
@@ -3863,6 +3887,42 @@ board whose NVM gets erased (or one being provisioned for the first
 time) fully recovers after a single wizard run, without needing its NVM
 save to have succeeded or persisted correctly — a reasonable hedge given
 clone firmware's documented inconsistency around save/reboot behavior.</p>
+<h3 id="anti-cogging-calibration-odrive_anticogging_calibrate">Anti-cogging calibration (<code>ODRIVE_ANTICOGGING_CALIBRATE</code>)<a class="headerlink" href="#anti-cogging-calibration-odrive_anticogging_calibrate" title="Permanent link">&para;</a></h3>
+<p>Cogging torque (the periodic ripple from motor magnetic reluctance) is
+compensated by a separate, optional on-device calibration: a sweep over
+one full mechanical rotation that builds a per-encoder-position torque
+compensation map. Unlike motor/encoder calibration, this runs <em>after</em>
+<code>ODRIVE_ARM</code> — the axis must already be in closed-loop control, not
+<code>IDLE</code> — since the sweep is itself a closed-loop-controlled move.</p>
+<ol>
+<li><strong>Preconditions.</strong> Axis armed (<code>CLOSED_LOOP_CONTROL</code>), motor and
+   encoder already <code>pre_calibrated</code>, no active errors, toolhead not
+   mid-print on a bound kinematics rail (same guard as
+   <code>ODRIVE_AXIS_MOVE</code>, since the sweep's motion would otherwise collide
+   with real printer motion on that axis).</li>
+<li><strong>Trigger the sweep</strong> — the exact on-device mechanism (a dedicated
+   <code>requested_state</code>, or setting a <code>controller.config.anticogging.*</code>
+   flag while already closed-loop, depending on firmware) needs to be
+   confirmed against the actual firmware source per supported version
+   during implementation, following the same
+   <a href="#firmware-version-tolerance-layer">firmware-version tolerance layer</a>
+   approach used for every other version-sensitive behavior in this
+   spec — do not assume a single mechanism works unmodified across the
+   whole 0.5.1–0.5.6 range. Poll for completion the same way
+   <code>ODRIVE_CALIBRATE</code> does, printing progress as it advances through the
+   rotation.</li>
+<li><strong>Check every error register</strong> on completion, decoding any non-zero
+   result the same way <code>ODRIVE_CALIBRATE</code> does.</li>
+<li><strong>On success</strong>, set <code>controller.config.anticogging.pre_calibrated = 1</code>
+   and, if <code>anticogging_enabled: True</code> in <code>[odrive_axis]</code> (or <code>SAVE=1</code>
+   was passed), enable <code>controller.config.anticogging.enabled</code> so the
+   map is actually applied to subsequent motion.</li>
+<li>The resulting map plus <code>anticogging.enabled</code> are ODrive-NVM-resident
+   state, in the same bucket as motor/encoder calibration results —
+   <code>SAVE=1</code> follows up with <code>ODRIVE_SAVE_CONFIG</code> exactly as
+   <code>ODRIVE_CALIBRATE</code>'s wizard prompts for it, rather than inventing a
+   separate save path.</li>
+</ol>
 <h3 id="safety-interlocks-ux-visible">Safety interlocks (UX-visible)<a class="headerlink" href="#safety-interlocks-ux-visible" title="Permanent link">&para;</a></h3>
 <ul>
 <li><code>ODRIVE_ARM</code> is refused, with an explanatory error, when: any error
@@ -3872,6 +3932,10 @@ clone firmware's documented inconsistency around save/reboot behavior.</p>
 <li>Homing an ODrive rail (<code>G28</code>) verifies the axis is armed and
   error-free before starting; if not, it raises a <code>command_error</code>
   naming the exact fix (e.g. "run ODRIVE_ARM AXIS=x_motor first").</li>
+<li><code>ODRIVE_ANTICOGGING_CALIBRATE</code> is refused, with an explanatory error,
+  unless the axis is already armed with motor and encoder calibration
+  complete, and — like <code>ODRIVE_AXIS_MOVE</code> — refused if the axis is bound
+  to a homed kinematics rail with active toolhead motion queued.</li>
 <li>If the streamer ever observes commanded motion (non-zero trapq
   velocity) for a bound rail whose axis is not armed, this is a
   motion-correctness violation and triggers <code>printer.invoke_shutdown</code>
