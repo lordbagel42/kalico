@@ -153,6 +153,10 @@ class ODriveBoard:
 
         telemetry.register_board_endpoint(self)
 
+        from . import repl
+
+        repl.register_board_endpoint(self)
+
     # Minimal MCU-like surface used by ODriveStepper (get_mcu() returns
     # this board) so it shares the same print_time timebase as
     # MCU-driven steppers in the same kinematics.
