@@ -741,6 +741,7 @@ vel_integrator_gain: 0.32
 vel_limit:                                 # default: derived from the bound rail's max_velocity
 input_mode: pos_filter                     # pos_filter | passthrough
 filter_bandwidth:                          # default: 0.5 / sample_period
+anticogging_enabled: False                 # apply the calibrated cogging-torque compensation map, once calibrated
 # --- safety ---
 enable_thermistor: False                   # ODrive-side motor thermistor, if wired
 motor_temp_limit: 90.0
@@ -773,6 +774,7 @@ mux-command convention in `klippy/extras/tmc.py`.
 | `ODRIVE_DISCONNECT` | `ODRIVE=` | Disarm all axes on this board, close the serial port. |
 | `ODRIVE_STATUS` | `[ODRIVE=]` | Print firmware/hardware version, serial number, vbus, per-axis state/temperature/errors, streaming statistics. |
 | `ODRIVE_CALIBRATE` | `AXIS=` `TYPE=full\|motor\|encoder_offset\|index` | Runs the calibration wizard (below). |
+| `ODRIVE_ANTICOGGING_CALIBRATE` | `AXIS=` `[SAVE=1]` | Runs the on-device anti-cogging calibration sweep (below). Requires the axis to already be armed with motor and encoder calibration complete. |
 | `ODRIVE_INDEX_SEARCH` | `AXIS=` | Runs state 6, waits, reports success/failure. |
 | `ODRIVE_ARM` / `ODRIVE_DISARM` | `AXIS=` | Enter/leave `CLOSED_LOOP_CONTROL`, subject to the interlocks below. |
 | `ODRIVE_CLEAR_ERRORS` | `ODRIVE=` | `sc`, then re-reads and reports all error registers. |
@@ -827,6 +829,43 @@ time) fully recovers after a single wizard run, without needing its NVM
 save to have succeeded or persisted correctly — a reasonable hedge given
 clone firmware's documented inconsistency around save/reboot behavior.
 
+### Anti-cogging calibration (`ODRIVE_ANTICOGGING_CALIBRATE`)
+
+Cogging torque (the periodic ripple from motor magnetic reluctance) is
+compensated by a separate, optional on-device calibration: a sweep over
+one full mechanical rotation that builds a per-encoder-position torque
+compensation map. Unlike motor/encoder calibration, this runs *after*
+`ODRIVE_ARM` — the axis must already be in closed-loop control, not
+`IDLE` — since the sweep is itself a closed-loop-controlled move.
+
+1. **Preconditions.** Axis armed (`CLOSED_LOOP_CONTROL`), motor and
+   encoder already `pre_calibrated`, no active errors, toolhead not
+   mid-print on a bound kinematics rail (same guard as
+   `ODRIVE_AXIS_MOVE`, since the sweep's motion would otherwise collide
+   with real printer motion on that axis).
+2. **Trigger the sweep** — the exact on-device mechanism (a dedicated
+   `requested_state`, or setting a `controller.config.anticogging.*`
+   flag while already closed-loop, depending on firmware) needs to be
+   confirmed against the actual firmware source per supported version
+   during implementation, following the same
+   [firmware-version tolerance layer](#firmware-version-tolerance-layer)
+   approach used for every other version-sensitive behavior in this
+   spec — do not assume a single mechanism works unmodified across the
+   whole 0.5.1–0.5.6 range. Poll for completion the same way
+   `ODRIVE_CALIBRATE` does, printing progress as it advances through the
+   rotation.
+3. **Check every error register** on completion, decoding any non-zero
+   result the same way `ODRIVE_CALIBRATE` does.
+4. **On success**, set `controller.config.anticogging.pre_calibrated = 1`
+   and, if `anticogging_enabled: True` in `[odrive_axis]` (or `SAVE=1`
+   was passed), enable `controller.config.anticogging.enabled` so the
+   map is actually applied to subsequent motion.
+5. The resulting map plus `anticogging.enabled` are ODrive-NVM-resident
+   state, in the same bucket as motor/encoder calibration results —
+   `SAVE=1` follows up with `ODRIVE_SAVE_CONFIG` exactly as
+   `ODRIVE_CALIBRATE`'s wizard prompts for it, rather than inventing a
+   separate save path.
+
 ### Safety interlocks (UX-visible)
 
 - `ODRIVE_ARM` is refused, with an explanatory error, when: any error
@@ -836,6 +875,10 @@ clone firmware's documented inconsistency around save/reboot behavior.
 - Homing an ODrive rail (`G28`) verifies the axis is armed and
   error-free before starting; if not, it raises a `command_error`
   naming the exact fix (e.g. "run ODRIVE_ARM AXIS=x_motor first").
+- `ODRIVE_ANTICOGGING_CALIBRATE` is refused, with an explanatory error,
+  unless the axis is already armed with motor and encoder calibration
+  complete, and — like `ODRIVE_AXIS_MOVE` — refused if the axis is bound
+  to a homed kinematics rail with active toolhead motion queued.
 - If the streamer ever observes commanded motion (non-zero trapq
   velocity) for a bound rail whose axis is not armed, this is a
   motion-correctness violation and triggers `printer.invoke_shutdown`
