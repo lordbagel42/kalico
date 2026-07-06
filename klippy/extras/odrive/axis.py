@@ -5,6 +5,16 @@
 # error/telemetry polling, and (when bound to a [stepper_x]-style rail)
 # hands off to odrv_stepper.ODriveRail / streamer.SetpointStreamer.
 #
+# "sensorless: True" is a separate, deliberately minimal debug path: it
+# drives ODrive's native sensorless (back-EMF velocity estimation, no
+# encoder at all) mode just enough to spin a motor and check wiring, via
+# ODRIVE_CALIBRATE TYPE=motor / ODRIVE_ARM / ODRIVE_AXIS_MOVE VEL=... .
+# It is not a fully-integrated feature: a sensorless axis cannot be
+# bound to a [stepper_x]-style rail (no encoder means no usable absolute
+# position feedback), and per ODrive's own documentation, sensorless
+# mode cannot stop or change direction cleanly once in closed-loop
+# control -- see cmd_ODRIVE_AXIS_MOVE.
+#
 # Copyright (C) 2026  Kalico contributors
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
@@ -49,7 +59,54 @@ class ODriveAxis:
         self.motor_type = config.getchoice(
             "motor_type", properties.MOTOR_TYPE_CHOICES, "high_current"
         )
-        self.encoder_cpr = config.getint("encoder_cpr", minval=1)
+        # Sensorless (native ODrive back-EMF velocity estimation, no
+        # encoder at all) is a minimal debug path for spinning/checking
+        # wiring on a motor that has no encoder attached -- not a fully
+        # integrated permanent feature. It is mutually exclusive with
+        # encoder_cpr (below) and with binding this axis to a
+        # [stepper_x]-style rail (see lookup_rail()): there is no usable
+        # absolute position feedback to home or stream motion against.
+        self.sensorless = config.getboolean("sensorless", False)
+        if self.sensorless:
+            self.encoder_cpr = None
+            # pm_flux_linkage is motor-specific (derivable from a KV
+            # rating, but not computed here -- there is no sane
+            # universal default) and is required, mirroring how
+            # pole_pairs/torque_constant above are required.
+            self.sensorless_pm_flux_linkage = config.getfloat(
+                "sensorless_pm_flux_linkage", None, above=0.0
+            )
+            if self.sensorless_pm_flux_linkage is None:
+                raise config.error(
+                    "sensorless_pm_flux_linkage is required in section"
+                    " '%s' when sensorless: True (motor-specific; maps"
+                    " to axis%d.sensorless_estimator.config"
+                    ".pm_flux_linkage on the ODrive)"
+                    % (self.full_name, self.axis_index)
+                )
+            # ODrive's own documentation disagrees across firmware
+            # versions on whether these ramp parameters are in rad/s(^2)
+            # or electrical-rev/s(^2) -- this module does not assert
+            # either unit; tune these empirically against the real
+            # device. This is the open-loop startup ramp sensorless mode
+            # needs before the back-EMF estimator can take over control;
+            # the defaults below are a conservative starting point to
+            # tune, not a guaranteed-safe value for any given motor.
+            self.sensorless_ramp_vel = config.getfloat(
+                "sensorless_ramp_vel", 10.0, above=0.0
+            )
+            self.sensorless_ramp_accel = config.getfloat(
+                "sensorless_ramp_accel", 10.0, above=0.0
+            )
+            self.sensorless_ramp_current = config.getfloat(
+                "sensorless_ramp_current", 5.0, above=0.0
+            )
+        else:
+            self.encoder_cpr = config.getint("encoder_cpr", minval=1)
+            self.sensorless_pm_flux_linkage = None
+            self.sensorless_ramp_vel = None
+            self.sensorless_ramp_accel = None
+            self.sensorless_ramp_current = None
         self.encoder_use_index = config.getboolean("encoder_use_index", False)
         self.encoder_bandwidth = config.getfloat(
             "encoder_bandwidth", 1000.0, above=0.0
@@ -263,23 +320,36 @@ class ODriveAxis:
         return "axis %s: %s" % (self.name, " ".join(parts))
 
     def format_config_dump(self):
-        return (
+        base = (
             "axis %s (M%d): pole_pairs=%d torque_constant=%.4f"
-            " current_lim=%.2f encoder_cpr=%d pos_gain=%.3f vel_gain=%.4f"
-            " vel_integrator_gain=%.4f vel_limit=%.2f input_mode=%s"
+            " current_lim=%.2f pos_gain=%.3f vel_gain=%.4f"
+            " vel_integrator_gain=%.4f vel_limit=%.2f"
             % (
                 self.name,
                 self.axis_index,
                 self.pole_pairs,
                 self.torque_constant,
                 self.current_lim,
-                self.encoder_cpr,
                 self.pos_gain,
                 self.vel_gain,
                 self.vel_integrator_gain,
                 self.vel_limit,
-                self.input_mode_name,
             )
+        )
+        if self.sensorless:
+            return base + (
+                " sensorless=True pm_flux_linkage=%.5f ramp_vel=%.3f"
+                " ramp_accel=%.3f ramp_current=%.3f"
+                % (
+                    self.sensorless_pm_flux_linkage,
+                    self.sensorless_ramp_vel,
+                    self.sensorless_ramp_accel,
+                    self.sensorless_ramp_current,
+                )
+            )
+        return base + " encoder_cpr=%d input_mode=%s" % (
+            self.encoder_cpr,
+            self.input_mode_name,
         )
 
     # Rail binding (called via stepper.LookupMultiRail hook)
@@ -288,6 +358,24 @@ class ODriveAxis:
     ):
         from . import odrv_stepper
 
+        if self.sensorless:
+            # A sensorless axis has no encoder, so there is no usable
+            # absolute position feedback to home against or to stream
+            # trapq-derived setpoints against -- this is a debug tool
+            # for jogging an unencoded motor via ODRIVE_AXIS_MOVE
+            # VEL=..., not a kinematics-capable rail. Keep the guard
+            # simple (a clear error beats deep architectural
+            # enforcement) since this feature is explicitly minimal.
+            raise config.error(
+                "ODrive axis '%s' has sensorless: True and cannot be"
+                " bound to a rail (section '%s'); a sensorless axis has"
+                " no encoder and therefore no absolute position"
+                " feedback to home or stream motion against. Remove the"
+                " 'odrive_axis: %s' binding, or set sensorless: False"
+                " and configure an encoder_cpr if this axis needs to"
+                " drive real kinematics."
+                % (self.name, config.get_name(), self.name)
+            )
         if self.rail is not None:
             raise config.error(
                 "ODrive axis '%s' is already bound to rail '%s'"
@@ -322,13 +410,17 @@ class ODriveAxis:
             self.prop("motor.config.torque_constant"), self.torque_constant
         )
         t.write_property(self.prop("motor.config.motor_type"), self.motor_type)
-        t.write_property(self.prop("encoder.config.cpr"), self.encoder_cpr)
-        t.write_property(
-            self.prop("encoder.config.use_index"), int(self.encoder_use_index)
-        )
-        t.write_property(
-            self.prop("encoder.config.bandwidth"), self.encoder_bandwidth
-        )
+        if self.sensorless:
+            self._push_sensorless_config(t)
+        else:
+            t.write_property(self.prop("encoder.config.cpr"), self.encoder_cpr)
+            t.write_property(
+                self.prop("encoder.config.use_index"),
+                int(self.encoder_use_index),
+            )
+            t.write_property(
+                self.prop("encoder.config.bandwidth"), self.encoder_bandwidth
+            )
         t.write_property(self.prop("controller.config.pos_gain"), self.pos_gain)
         t.write_property(self.prop("controller.config.vel_gain"), self.vel_gain)
         t.write_property(
@@ -338,18 +430,28 @@ class ODriveAxis:
         t.write_property(
             self.prop("controller.config.vel_limit"), self.vel_limit
         )
-        t.write_property(
-            self.prop("controller.config.control_mode"),
-            properties.CONTROL_MODE_POSITION_CONTROL,
-        )
-        # self.input_mode_name already holds the *resolved* enum value --
-        # config.getchoice() returns choices[matched_string], not the
-        # string itself -- so re-indexing INPUT_MODE_CHOICES with it here
-        # raised KeyError on every push_config()/ODRIVE_ARM call for any
-        # axis with at least one configured axis (caught by scripts/
-        # odrive_mock.py, which is the first thing to ever actually drive
-        # this code path end to end).
-        input_mode = self.input_mode_name
+        if self.sensorless:
+            # No position feedback to control against -- velocity
+            # control via the "v" ASCII setpoint (see
+            # cmd_ODRIVE_AXIS_MOVE) is the only mode that makes sense.
+            t.write_property(
+                self.prop("controller.config.control_mode"),
+                properties.CONTROL_MODE_VELOCITY_CONTROL,
+            )
+            input_mode = properties.INPUT_MODE_PASSTHROUGH
+        else:
+            t.write_property(
+                self.prop("controller.config.control_mode"),
+                properties.CONTROL_MODE_POSITION_CONTROL,
+            )
+            # self.input_mode_name already holds the *resolved* enum
+            # value -- config.getchoice() returns choices[matched_string],
+            # not the string itself -- so re-indexing INPUT_MODE_CHOICES
+            # with it here raised KeyError on every push_config()/
+            # ODRIVE_ARM call for any axis with at least one configured
+            # axis (caught by scripts/odrive_mock.py, which is the first
+            # thing to ever actually drive this code path end to end).
+            input_mode = self.input_mode_name
         t.write_property(self.prop("controller.config.input_mode"), input_mode)
         fb = self.filter_bandwidth
         if fb is None:
@@ -376,10 +478,40 @@ class ODriveAxis:
         self.calibrated_motor = self._read_bool(
             self.prop("motor.config.pre_calibrated")
         )
-        self.calibrated_encoder = self._read_bool(
-            self.prop("encoder.config.pre_calibrated")
+        if self.sensorless:
+            # No encoder to calibrate or find an index on -- treat both
+            # as satisfied so ODRIVE_ARM's "calibrated_motor and
+            # calibrated_encoder" gate only ever waits on motor
+            # calibration for a sensorless axis.
+            self.calibrated_encoder = True
+            self.index_found = True
+        else:
+            self.calibrated_encoder = self._read_bool(
+                self.prop("encoder.config.pre_calibrated")
+            )
+            self.index_found = self._read_bool(self.prop("encoder.index_found"))
+
+    def _push_sensorless_config(self, t):
+        # See the "Sensorless" comment in __init__ for the units caveat
+        # on the ramp properties. enable_sensorless_mode is the actual
+        # firmware toggle (a plain axis-config bool, not an
+        # encoder.config.mode change).
+        t.write_property(self.prop("config.enable_sensorless_mode"), 1)
+        t.write_property(
+            self.prop("sensorless_estimator.config.pm_flux_linkage"),
+            self.sensorless_pm_flux_linkage,
         )
-        self.index_found = self._read_bool(self.prop("encoder.index_found"))
+        t.write_property(
+            self.prop("config.sensorless_ramp.vel"), self.sensorless_ramp_vel
+        )
+        t.write_property(
+            self.prop("config.sensorless_ramp.accel"),
+            self.sensorless_ramp_accel,
+        )
+        t.write_property(
+            self.prop("config.sensorless_ramp.current"),
+            self.sensorless_ramp_current,
+        )
 
     def _read_bool(self, path):
         raw = self.board.transport.read_property_sync(path, timeout=1.0)
@@ -546,6 +678,13 @@ class ODriveAxis:
             return self.reactor.NEVER
         if self.board.props.capabilities.get("watchdog_feed_cmd", True):
             self.board.transport.feed_watchdog(self.axis_index)
+        elif self.sensorless:
+            # last_setpoint_turns holds the last velocity setpoint
+            # (turns/s), not a position, for a sensorless axis -- see
+            # cmd_ODRIVE_AXIS_MOVE.
+            self.board.transport.send_velocity_setpoint(
+                self.axis_index, self.last_setpoint_turns
+            )
         else:
             self.board.transport.send_position_setpoint(
                 self.axis_index, self.last_setpoint_turns
@@ -574,6 +713,16 @@ class ODriveAxis:
         if self.armed:
             raise gcmd.error(
                 "Disarm axis '%s' before calibrating (ODRIVE_DISARM)"
+                % (self.name,)
+            )
+        if self.sensorless and cal_type != "motor":
+            # No encoder exists, so encoder/encoder_offset/index/full
+            # calibration make no sense here -- sensorless mode still
+            # needs motor (R/L) calibration, it just skips every
+            # encoder-related calibration step entirely.
+            raise gcmd.error(
+                "ODrive axis %s: sensorless axes only support"
+                " TYPE=motor calibration (no encoder to calibrate)"
                 % (self.name,)
             )
         t = self.board.transport
@@ -692,12 +841,25 @@ class ODriveAxis:
         # axis with at least one configured axis (caught by scripts/
         # odrive_mock.py, which is the first thing to ever actually drive
         # this code path end to end).
-        input_mode = self.input_mode_name
+        if self.sensorless:
+            input_mode = properties.INPUT_MODE_PASSTHROUGH
+        else:
+            input_mode = self.input_mode_name
         t.write_property(self.prop("controller.config.input_mode"), input_mode)
-        self.last_setpoint_turns = self.pos_estimate_turns
-        t.write_property(
-            self.prop("controller.input_pos"), self.last_setpoint_turns
-        )
+        if self.sensorless:
+            # No position estimate worth holding a setpoint against;
+            # start from a stationary velocity setpoint and let
+            # ODRIVE_AXIS_MOVE VEL=... take it from there. Transitioning
+            # to closed-loop control below is what actually triggers the
+            # firmware's own sensorless startup ramp (sensorless_ramp.*)
+            # -- this module does not drive that ramp step by step.
+            self.last_setpoint_turns = 0.0
+            t.write_property(self.prop("controller.input_vel"), 0.0)
+        else:
+            self.last_setpoint_turns = self.pos_estimate_turns
+            t.write_property(
+                self.prop("controller.input_pos"), self.last_setpoint_turns
+            )
         t.write_property(
             self.prop("requested_state"),
             properties.AXIS_STATE_CLOSED_LOOP_CONTROL,
@@ -707,7 +869,15 @@ class ODriveAxis:
         self._start_watchdog_feed()
         if self.streamer is not None:
             self.streamer.start()
-        gcmd.respond_info("ODrive axis %s: armed" % (self.name,))
+        if self.sensorless:
+            gcmd.respond_info(
+                "ODrive axis %s: armed (sensorless). Reminder: sensorless"
+                " mode cannot stop or change direction cleanly once"
+                " closed-loop control is active -- ODRIVE_DISARM and"
+                " re-ODRIVE_ARM to stop or reverse." % (self.name,)
+            )
+        else:
+            gcmd.respond_info("ODrive axis %s: armed" % (self.name,))
 
     cmd_ODRIVE_DISARM_help = "Leave ODrive closed-loop control"
 
@@ -799,6 +969,9 @@ class ODriveAxis:
         self._require_connected(gcmd)
         if not self.armed:
             raise gcmd.error("ODrive axis %s: not armed" % (self.name,))
+        if self.sensorless:
+            self._cmd_odrive_axis_move_sensorless(gcmd)
+            return
         if self.rail is not None and self.rail.stepper.is_homed():
             toolhead = self.printer.lookup_object("toolhead")
             if (
@@ -844,6 +1017,27 @@ class ODriveAxis:
         gcmd.respond_info(
             "ODrive axis %s: moving to %s (input_mode stays TRAP_TRAJ"
             " until the next ODRIVE_ARM)" % (self.name, target_desc)
+        )
+
+    def _cmd_odrive_axis_move_sensorless(self, gcmd):
+        # Continuous velocity-hold setpoint via the ASCII protocol's
+        # "v <motor> <vel> <torque_ff>" command (see
+        # docs/ODrive_Implementation_Spec.md, "Transport design") --
+        # there is no position feedback on a sensorless axis, so the
+        # POS=/TURNS= trapezoidal-move path above does not apply.
+        vel = gcmd.get_float("VEL")
+        self.board.transport.send_velocity_setpoint(self.axis_index, vel)
+        # last_setpoint_turns holds the last velocity setpoint (turns/s)
+        # here, not a position -- see _watchdog_feed_tick.
+        self.last_setpoint_turns = vel
+        gcmd.respond_info(
+            "ODrive axis %s: sensorless velocity setpoint %.4f turns/s."
+            " REMINDER: ODrive's own docs state that sensorless mode"
+            " does not support stopping or changing direction once"
+            " closed-loop control is active -- VEL=0 will NOT smoothly"
+            " stop this motor. ODRIVE_DISARM and re-ODRIVE_ARM (which"
+            " re-runs the sensorless startup ramp) before commanding a"
+            " different direction or an actual stop." % (self.name, vel)
         )
 
     cmd_ODRIVE_WATCHDOG_help = "Diagnostic override of the ODrive watchdog"

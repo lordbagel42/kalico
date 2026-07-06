@@ -168,6 +168,109 @@ def test_position_feedback_tracks_setpoint(mock_odrive):
         assert float(pos_str) == pytest.approx(5.0, abs=0.05)
 
 
+def test_velocity_setpoint_tracks_constant_velocity(mock_odrive):
+    # "v" is the setpoint ODRIVE_AXIS_MOVE VEL=... sends for a sensorless
+    # [odrive_axis] (see klippy/extras/odrive/axis.py's
+    # _cmd_odrive_axis_move_sensorless) -- unlike "p", it must integrate
+    # position at a constant rate rather than lagging towards a fixed
+    # target (see AxisMotion.advance() in scripts/odrive_mock.py).
+    _, port = mock_odrive
+    with serial.Serial(port, 115200, timeout=2) as ser:
+        _send(ser, "v 0 5.0 0.0")
+        time.sleep(0.3)
+        _send(ser, "f 0")
+        pos_str, vel_str = _body(_recv(ser)).split()
+        assert float(vel_str) == pytest.approx(5.0, abs=0.05)
+        assert float(pos_str) == pytest.approx(5.0 * 0.3, abs=0.1)
+
+
+def test_sensorless_properties_round_trip(mock_odrive):
+    # New properties klippy/extras/odrive/axis.py's push_config() writes
+    # for a [odrive_axis] with sensorless: True -- must exist in the
+    # mock's property tree (not fall through to "invalid property") for
+    # the connect-time config push to succeed against this harness.
+    _, port = mock_odrive
+    with serial.Serial(port, 115200, timeout=2) as ser:
+        for path, value in (
+            ("axis0.config.enable_sensorless_mode", 1),
+            ("axis0.sensorless_estimator.config.pm_flux_linkage", 0.019),
+            ("axis0.config.sensorless_ramp.vel", 10.0),
+            ("axis0.config.sensorless_ramp.accel", 10.0),
+            ("axis0.config.sensorless_ramp.current", 5.0),
+        ):
+            _send(ser, "w %s %s" % (path, value))
+            time.sleep(0.02)
+            _send(ser, "r %s" % (path,))
+            assert float(_body(_recv(ser))) == pytest.approx(value)
+
+
+def test_sensorless_calibrate_arm_and_velocity_move_sequence(mock_odrive):
+    # End-to-end wire-level rehearsal of what klippy/extras/odrive/axis.py
+    # does for a sensorless axis: push_config() (enable_sensorless_mode +
+    # ramp/pm_flux_linkage + control_mode=VELOCITY_CONTROL), then
+    # ODRIVE_CALIBRATE TYPE=motor (never encoder/index for a sensorless
+    # axis), then ODRIVE_ARM (closed-loop control), then
+    # ODRIVE_AXIS_MOVE VEL=... (the "v" setpoint) -- completing with no
+    # protocol error and a feedback reply that reflects real motion.
+    _, port = mock_odrive
+    with serial.Serial(port, 115200, timeout=2) as ser:
+        # push_config() equivalent
+        _send(ser, "w axis0.config.enable_sensorless_mode 1")
+        _send(
+            ser,
+            "w axis0.sensorless_estimator.config.pm_flux_linkage 0.019",
+        )
+        _send(ser, "w axis0.config.sensorless_ramp.vel 10.0")
+        _send(ser, "w axis0.config.sensorless_ramp.accel 10.0")
+        _send(ser, "w axis0.config.sensorless_ramp.current 5.0")
+        _send(ser, "w axis0.controller.config.control_mode 2")
+        _send(ser, "w axis0.controller.config.input_mode 1")
+        time.sleep(0.05)
+
+        # ODRIVE_CALIBRATE TYPE=motor
+        _send(ser, "w axis0.requested_state 4")
+        deadline = time.monotonic() + 2.0
+        state = None
+        while time.monotonic() < deadline:
+            _send(ser, "r axis0.current_state")
+            state = _body(_recv(ser))
+            if state == "1":
+                break
+            time.sleep(0.02)
+        assert state == "1", "motor calibration never returned to IDLE"
+        _send(ser, "r axis0.motor.config.pre_calibrated")
+        assert _body(_recv(ser)) == "1"
+        # Sensorless axes never run encoder/index calibration -- the mock
+        # must not have flipped this on its own.
+        _send(ser, "r axis0.encoder.config.pre_calibrated")
+        assert _body(_recv(ser)) == "0"
+
+        # ODRIVE_ARM: request closed-loop control directly (no encoder
+        # calibration prerequisite for a sensorless axis)
+        _send(ser, "w axis0.requested_state 8")
+        time.sleep(0.05)
+        _send(ser, "r axis0.current_state")
+        assert _body(_recv(ser)) == "8"
+
+        # ODRIVE_AXIS_MOVE VEL=6 -> "v <motor> <vel> <torque_ff>"
+        _send(ser, "v 0 6.0 0.0")
+        time.sleep(0.2)
+        _send(ser, "f 0")
+        pos_str, vel_str = _body(_recv(ser)).split()
+        assert float(vel_str) == pytest.approx(6.0, abs=0.05)
+
+        # No axis/motor/encoder/controller error flags anywhere in this
+        # sequence.
+        for suffix in (
+            "error",
+            "motor.error",
+            "encoder.error",
+            "controller.error",
+        ):
+            _send(ser, "r axis0.%s" % (suffix,))
+            assert _body(_recv(ser)) == "0"
+
+
 def test_calibration_state_transition(mock_odrive):
     _, port = mock_odrive
     with serial.Serial(port, 115200, timeout=2) as ser:
