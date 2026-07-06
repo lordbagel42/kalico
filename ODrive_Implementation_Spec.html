@@ -3391,9 +3391,9 @@ only when the request carried one. Framing:</p>
   reply. Used only for <code>ODRIVE_AXIS_MOVE</code> (standalone jogging), never
   while an axis is bound to kinematics.</li>
 <li><code>f &lt;motor&gt;</code> — feedback request; single-line reply <code>&lt;pos&gt; &lt;vel&gt;</code>.</li>
-<li><code>u &lt;motor&gt;</code> — feed the watchdog <strong>without</strong> changing the setpoint
-  (present on firmware ≥ 0.5.2; see the tolerance layer for the
-  ≤ 0.5.1 fallback).</li>
+<li><code>u &lt;motor&gt;</code> — feed the watchdog <strong>without</strong> changing the setpoint.
+  Confirmed on real 0.5.1 hardware (ODrive v3.6) that this works fine
+  regardless of firmware version, so it is not version-gated.</li>
 <li><code>r &lt;property&gt;</code> / <code>w &lt;property&gt; &lt;value&gt;</code> — single-line reply (<code>r</code>) or no
   reply (<code>w</code>, verified by a follow-up <code>r</code>).</li>
 <li><code>ss</code> (save — <strong>reboots and re-enumerates USB on firmware ≥ 0.5.2</strong>,

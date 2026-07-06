@@ -2314,6 +2314,15 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#odrive_encoder_diagnose" class="md-nav__link">
+    <span class="md-ellipsis">
+      ODRIVE_ENCODER_DIAGNOSE
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -6636,6 +6645,15 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#odrive_encoder_diagnose" class="md-nav__link">
+    <span class="md-ellipsis">
+      ODRIVE_ENCODER_DIAGNOSE
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -9052,6 +9070,17 @@ during an active print.</p>
 Diagnostic override of the ODrive watchdog for one motor axis. Not
 needed in normal use -- the watchdog is managed automatically by
 ODRIVE_ARM/ODRIVE_DISARM.</p>
+<h4 id="odrive_encoder_diagnose">ODRIVE_ENCODER_DIAGNOSE<a class="headerlink" href="#odrive_encoder_diagnose" title="Permanent link">&para;</a></h4>
+<p><code>ODRIVE_ENCODER_DIAGNOSE AXIS=&lt;name&gt; [DURATION=&lt;seconds&gt;]</code>:
+Samples the axis's raw encoder signal (shadow_count for
+encoder_mode: incremental, hall_state for encoder_mode: hall) for
+<code>DURATION</code> seconds (default 3.0) and reports whether it looks like a
+clean signal, a noisy/inconsistent one (loose connection, missing
+encoder power/ground, crosstalk), or one that never changed at all
+(wiring/power problem, or the shaft never actually moved). Move the
+shaft by hand while this runs. Intended to be run <em>before</em>
+ODRIVE_CALIBRATE, to rule out a wiring problem before spending time on
+calibration and CPR/pole_pairs tuning.</p>
 <h3 id="mcp4018">[mcp4018]<a class="headerlink" href="#mcp4018" title="Permanent link">&para;</a></h3>
 <p>The following command is available when a
 <a href="Config_Reference.html#mcp4018">mcp4018 config section</a> is
