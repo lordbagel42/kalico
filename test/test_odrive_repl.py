@@ -236,6 +236,103 @@ def test_repl_reset_discards_console_and_namespace():
     assert board._repl is not old_console
 
 
+def test_repl_exec_odrv0_bare_read_returns_repr_of_transport_value():
+    board = FakeBoard()
+    repl.register_board_endpoint(board)
+
+    response = _push(board, "odrv0.axis0.motor.config.pole_pairs")
+
+    assert response == {"output": "'42'\n", "more": False}
+    assert board.transport.reads == [("axis0.motor.config.pole_pairs", 2.0)]
+
+
+def test_repl_exec_odrv0_assignment_calls_write_property_sync():
+    board = FakeBoard()
+    repl.register_board_endpoint(board)
+
+    response = _push(board, "odrv0.axis0.motor.config.pole_pairs = 8")
+
+    assert response == {"output": "", "more": False}
+    assert board.transport.writes == [
+        ("axis0.motor.config.pole_pairs", 8, True, 2.0)
+    ]
+
+
+def test_repl_exec_odrv0_chaining_builds_expected_dotted_path():
+    board = FakeBoard()
+    repl.register_board_endpoint(board)
+
+    _push(board, "odrv0.axis0.motor.config.pole_pairs")
+    _push(board, "odrv0.vbus_voltage")
+    _push(board, "odrv0.axis1.encoder.config.cpr")
+
+    assert board.transport.reads == [
+        ("axis0.motor.config.pole_pairs", 2.0),
+        ("vbus_voltage", 2.0),
+        ("axis1.encoder.config.cpr", 2.0),
+    ]
+
+
+def test_repl_exec_odrv0_internal_attributes_do_not_leak_into_device_path():
+    board = FakeBoard()
+    repl.register_board_endpoint(board)
+
+    proxy = repl.OdrivePropertyProxy(board.transport)
+    child = proxy.axis0
+
+    # Internal bookkeeping attributes are real Python attributes on the
+    # proxy (via __slots__/object.__setattr__), not device paths --
+    # accessing them must not touch the transport at all.
+    assert child._path == "axis0"
+    assert child._transport is board.transport
+    assert board.transport.reads == []
+    assert board.transport.writes == []
+
+
+def test_repl_exec_odrv0_axis0_shortcut_works_without_special_casing():
+    board = FakeBoard()
+    repl.register_board_endpoint(board)
+
+    # odrv0.axis0 is not special-cased anywhere in repl.py; it falls
+    # out of plain __getattr__ chaining, same as any other attribute.
+    response = _push(board, "odrv0.axis0.pos_estimate")
+
+    assert response == {"output": "'42'\n", "more": False}
+    assert board.transport.reads == [("axis0.pos_estimate", 2.0)]
+
+
+def test_repl_exec_odrv0_calling_a_proxy_raises_type_error():
+    board = FakeBoard()
+    repl.register_board_endpoint(board)
+
+    # The ASCII protocol only supports property read/write, never
+    # function calls -- attempting to call a proxy attribute (e.g. the
+    # odrivetool-style odrv0.reboot()) must fail with a plain, honest
+    # TypeError, not something silently wrong.
+    response = _push(board, "odrv0.reboot()")
+
+    assert response["more"] is False
+    assert "TypeError" in response["output"]
+    assert "not callable" in response["output"]
+    # No transport traffic: the call fails before any read/write.
+    assert board.transport.reads == []
+    assert board.transport.writes == []
+
+
+def test_repl_exec_odrv0_intermediate_node_read_returns_transport_result():
+    # No recursive subtree dump (documented limitation): evaluating an
+    # intermediate node just does a raw read of that path and returns
+    # exactly what the transport gives back -- same as read() already
+    # does for a non-leaf/invalid path.
+    board = FakeBoard()
+    repl.register_board_endpoint(board)
+
+    response = _push(board, "odrv0.axis0.motor")
+
+    assert response == {"output": "'42'\n", "more": False}
+    assert board.transport.reads == [("axis0.motor", 2.0)]
+
+
 def test_repl_works_while_board_disconnected():
     # Plain Python introspection must keep working even without a live
     # device -- only read()/write() calls should fail, and only because
@@ -248,4 +345,7 @@ def test_repl_works_while_board_disconnected():
     assert response == {"output": "False\n", "more": False}
 
     response = _push(board, "print(read('axis0.pos_estimate'))")
+    assert response == {"output": "None\n", "more": False}
+
+    response = _push(board, "odrv0.axis0.pos_estimate")
     assert response == {"output": "None\n", "more": False}
