@@ -194,7 +194,13 @@ class PropertyMap:
         # Feature gates: default from version, confirmed/corrected later
         # by runtime probing (see ODriveBoard._probe_capabilities).
         self.capabilities = {
-            "watchdog_feed_cmd": fw_version is None or fw_version >= (0, 5, 2),
+            # The bare "u <motor>" watchdog-feed command was originally
+            # believed to be a fw >= 0.5.2 addition (see the ASCII
+            # protocol section of docs/ODrive_Implementation_Spec.md);
+            # confirmed on real 0.5.1 hardware (ODrive v3.6, the
+            # project's primary target board) that "u" works fine, so
+            # this is no longer version-gated.
+            "watchdog_feed_cmd": True,
             "device_homing": fw_version is None or fw_version >= (0, 5, 2),
             "endstop_gpio": fw_version is None or fw_version >= (0, 5, 2),
         }

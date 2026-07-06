@@ -194,9 +194,8 @@ class OdriveTransport:
         )
 
     def send_velocity_setpoint(self, motor_index, vel_turns, torque_ff=0.0):
-        # ASCII "v <motor> <vel> <torque_ff>" -- used only for standalone
-        # velocity-hold jogging (ODRIVE_AXIS_MOVE on a sensorless axis),
-        # never while an axis is bound to kinematics (see the spec's
+        # ASCII "v <motor> <vel> <torque_ff>" -- a velocity-hold setpoint,
+        # never used while an axis is bound to kinematics (see the spec's
         # "Transport design" -> protocol framing section).
         self.send_line("v %d %.6f %.6f" % (motor_index, vel_turns, torque_ff))
 

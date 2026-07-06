@@ -204,19 +204,6 @@ def build_default_properties(
                 p + "controller.config.input_filter_bandwidth": 100.0,
                 p + "controller.input_pos": 0.0,
                 p + "controller.input_vel": 0.0,
-                # Sensorless-mode properties (klippy/extras/odrive/
-                # axis.py's push_config()/_push_sensorless_config(), used
-                # by [odrive_axis] sensorless: True). Real firmware
-                # values default to 0/disabled the same way; the "v"
-                # command below is accepted regardless of
-                # enable_sensorless_mode, matching how real firmware
-                # accepts ASCII setpoint commands independent of the
-                # axis's own state-machine gating.
-                p + "config.enable_sensorless_mode": 0,
-                p + "sensorless_estimator.config.pm_flux_linkage": 0.0,
-                p + "config.sensorless_ramp.vel": 0.0,
-                p + "config.sensorless_ramp.accel": 0.0,
-                p + "config.sensorless_ramp.current": 0.0,
             }
         )
     return props
@@ -234,11 +221,9 @@ class AxisMotion:
     number, which is what the calibration/arm/streaming state machine
     actually reads.
 
-    A "v" (velocity setpoint -- used by ODRIVE_AXIS_MOVE on a sensorless
-    [odrive_axis]) switches this to a constant-velocity integration
-    (`vel_target` turns/s) instead of the position lag, for the same
-    reason: enough to make "f" reflect real, changing motion, not a
-    faithful model of the ODrive's actual sensorless startup ramp.
+    A "v" (velocity setpoint) switches this to a constant-velocity
+    integration (`vel_target` turns/s) instead of the position lag, for
+    the same reason: enough to make "f" reflect real, changing motion.
     """
 
     def __init__(self):
@@ -481,8 +466,7 @@ class MockOdrive:
             return
         # "p"/"t" carry a new position setpoint (switches back to the
         # position-lag model, see AxisMotion); "v" carries a velocity
-        # setpoint (used by ODRIVE_AXIS_MOVE on a sensorless
-        # [odrive_axis], see AxisMotion.advance()); "c"/"u" are torque/
+        # setpoint (see AxisMotion.advance()); "c"/"u" are torque/
         # watchdog-only commands the streamer never uses while bound to
         # kinematics (see the spec's protocol framing section) -- accepted
         # here (so they don't error) but not modeled at all.

@@ -368,9 +368,9 @@ only when the request carried one. Framing:
   reply. Used only for `ODRIVE_AXIS_MOVE` (standalone jogging), never
   while an axis is bound to kinematics.
 - `f <motor>` — feedback request; single-line reply `<pos> <vel>`.
-- `u <motor>` — feed the watchdog **without** changing the setpoint
-  (present on firmware ≥ 0.5.2; see the tolerance layer for the
-  ≤ 0.5.1 fallback).
+- `u <motor>` — feed the watchdog **without** changing the setpoint.
+  Confirmed on real 0.5.1 hardware (ODrive v3.6) that this works fine
+  regardless of firmware version, so it is not version-gated.
 - `r <property>` / `w <property> <value>` — single-line reply (`r`) or no
   reply (`w`, verified by a follow-up `r`).
 - `ss` (save — **reboots and re-enumerates USB on firmware ≥ 0.5.2**,
