@@ -1722,6 +1722,15 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#input-shaping" class="md-nav__link">
+    <span class="md-ellipsis">
+      Input shaping
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#odrive-side-mode" class="md-nav__link">
     <span class="md-ellipsis">
       ODrive-side mode
@@ -2703,6 +2712,15 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#input-shaping" class="md-nav__link">
+    <span class="md-ellipsis">
+      Input shaping
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#odrive-side-mode" class="md-nav__link">
     <span class="md-ellipsis">
       ODrive-side mode
@@ -3545,6 +3563,36 @@ are permitted but documented as increasingly jitter-sensitive, per the
 <a href="https://discourse.odriverobotics.com/t/decreasing-latency/1463">ODrive team's own findings</a>
 that USB bulk-transfer scheduling, not the ODrive firmware, is the
 limiting factor for setpoint-streaming latency on this hardware.</p>
+<h3 id="input-shaping">Input shaping<a class="headerlink" href="#input-shaping" title="Permanent link">&para;</a></h3>
+<p>Kalico's <code>[input_shaper]</code> mechanism has zero effect on an ODrive-driven
+rail. It works by swapping a stepper's <code>stepper_kinematics</code> for a
+wrapper (<code>klippy/chelper/kin_shaper.c</code>) whose <code>calc_position_cb</code>
+convolves the <em>original</em> kinematics' position at several time offsets
+— but that convolution is only ever invoked from
+<code>itersolve_gen_steps_range</code> (<code>klippy/chelper/itersolve.c</code>), the MCU
+step-generation loop, which this module never calls into (see
+<code>odrv_stepper.py</code>'s module docstring: no stepcompress sink, no
+<code>itersolve_generate_steps</code>). <code>SetpointStreamer</code> samples the trapq
+directly instead.</p>
+<p><code>shaper_type</code>/<code>shaper_freq</code>/<code>damping_ratio</code> on the rail section
+(<code>[stepper_x]</code>, etc.) reimplement the same convolution as a host-side
+pre-filter over the setpoint stream: on each TX tick, instead of one
+<code>_sample_trapq(print_time)</code> call, one call per shaper impulse at
+<code>print_time + mean_t - t_i</code>, weighted by each impulse's normalized
+amplitude — exactly <code>kin_shaper.c</code>'s <code>init_shaper</code>/<code>shift_pulses</code>/
+<code>calc_position</code> math (<code>mean_t</code> is the amplitude-weighted mean of the
+impulse times, which is what makes the filter an identity transform
+for constant-velocity motion rather than a pure delay), with impulse
+coefficients reused directly from <code>shaper_defs.py</code> rather than
+reimplemented. Both position <em>and</em> velocity feed-forward are shaped
+this way (shaping is linear, so shaping position and differentiating
+commutes with shaping velocity directly).</p>
+<p>This is a <strong>per-axis, ODrive-only</strong> option, separate from the global
+<code>[input_shaper]</code> section (which still applies normally to any
+MCU-stepper axes on the same printer) — an ODrive axis is not
+necessarily part of the same X/Y resonance system <code>[input_shaper]</code>
+assumes, so shaping it independently, per motor, is the more natural
+fit here.</p>
 <h3 id="odrive-side-mode">ODrive-side mode<a class="headerlink" href="#odrive-side-mode" title="Permanent link">&para;</a></h3>
 <p>At CONFIGURING time this module sets:</p>
 <ul>
