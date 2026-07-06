@@ -53,12 +53,21 @@ class FakeTransport:
     def __init__(self):
         self.writes = []
         self.props = {}
+        self.read_sequences = {}
 
     def write_property(self, path, value):
         self.writes.append((path, value))
         self.props[path] = value
 
     def read_property_sync(self, path, timeout=2.0):
+        seq = self.read_sequences.get(path)
+        if seq:
+            # Simulates an external, changing signal (e.g. shadow_count/
+            # hall_state) -- one item consumed per read, repeating the
+            # last item once exhausted so callers that poll longer than
+            # the scripted sequence don't crash.
+            value = seq.pop(0) if len(seq) > 1 else seq[0]
+            return str(value)
         return str(self.props.get(path, 0))
 
     def query_sync(self, line, timeout=2.0):
@@ -224,3 +233,87 @@ def test_arm_rejects_when_not_calibrated():
 
     with pytest.raises(Exception, match="not calibrated"):
         axis.cmd_ODRIVE_ARM(FakeGCmd())
+
+
+def test_encoder_mode_defaults_to_incremental():
+    printer, _ = _printer_with_board()
+    axis = _build_axis(printer, {"encoder_cpr": 8192})
+    assert axis.encoder_mode == properties.ENCODER_MODE_INCREMENTAL
+
+
+def test_encoder_mode_hall_choice():
+    printer, _ = _printer_with_board()
+    axis = _build_axis(printer, {"encoder_cpr": 42, "encoder_mode": "hall"})
+    assert axis.encoder_mode == properties.ENCODER_MODE_HALL
+
+
+def test_push_config_writes_encoder_mode():
+    printer, board = _printer_with_board()
+    axis = _build_axis(printer, {"encoder_cpr": 42, "encoder_mode": "hall"})
+
+    axis.push_config()
+
+    written = dict(board.transport.writes)
+    assert (
+        written[axis.prop("encoder.config.mode")]
+        == properties.ENCODER_MODE_HALL
+    )
+
+
+def test_encoder_diagnose_flags_flat_signal():
+    printer, board = _printer_with_board(reactor=reactor_mod.Reactor())
+    axis = _build_axis(printer, {"encoder_cpr": 8192})
+    board.transport.read_sequences[axis.prop("encoder.shadow_count")] = [0] * 20
+
+    gcmd = FakeGCmd({"DURATION": 0.15})
+    axis.cmd_ODRIVE_ENCODER_DIAGNOSE(gcmd)
+    assert any("never changed" in r for r in gcmd.responses)
+
+
+def test_encoder_diagnose_flags_clean_hall_signal():
+    printer, board = _printer_with_board(reactor=reactor_mod.Reactor())
+    axis = _build_axis(printer, {"encoder_cpr": 42, "encoder_mode": "hall"})
+    # A real 3-hall commutation cycle: each step changes exactly one bit.
+    clean_cycle = [1, 3, 2, 6, 4, 5] * 10
+    board.transport.read_sequences[axis.prop("encoder.hall_state")] = (
+        clean_cycle
+    )
+
+    gcmd = FakeGCmd({"DURATION": 0.15})
+    axis.cmd_ODRIVE_ENCODER_DIAGNOSE(gcmd)
+    assert any("looks clean" in r for r in gcmd.responses)
+
+
+def test_encoder_diagnose_flags_noisy_hall_signal():
+    printer, board = _printer_with_board(reactor=reactor_mod.Reactor())
+    axis = _build_axis(printer, {"encoder_cpr": 42, "encoder_mode": "hall"})
+    # Erratic, out-of-sequence jumps (including invalid 0/7 states) --
+    # matches what a loose/noisy hall connection actually looked like on
+    # real hardware.
+    noisy = [
+        5,
+        1,
+        3,
+        5,
+        6,
+        2,
+        0,
+        4,
+        7,
+        6,
+        4,
+        5,
+        3,
+        6,
+        5,
+        1,
+        3,
+        1,
+        5,
+        4,
+    ] * 3
+    board.transport.read_sequences[axis.prop("encoder.hall_state")] = noisy
+
+    gcmd = FakeGCmd({"DURATION": 0.15})
+    axis.cmd_ODRIVE_ENCODER_DIAGNOSE(gcmd)
+    assert any("noisy" in r for r in gcmd.responses)

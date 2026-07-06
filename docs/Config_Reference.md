@@ -3263,8 +3263,14 @@ torque_constant:
 #motor_type: high_current
 #   One of "high_current" or "gimbal".
 encoder_cpr:
-#   Encoder counts per revolution (4x the PPR for quadrature encoders).
-#   This parameter must be provided.
+#   Encoder counts per revolution (4x the PPR for quadrature encoders;
+#   6 * pole_pairs for encoder_mode: hall). This parameter must be
+#   provided.
+#encoder_mode: incremental
+#   One of "incremental" (a real quadrature A/B[/Z] encoder) or "hall"
+#   (a BLDC motor's raw 3-line hall sensors wired into the standard
+#   A/B/Z encoder input: hall A/B/C -> A/B/Z). Use ODRIVE_ENCODER_DIAGNOSE
+#   to check the wiring is producing a clean signal before calibrating.
 #encoder_use_index: False
 #encoder_bandwidth: 1000.0
 #pos_gain: 20.0

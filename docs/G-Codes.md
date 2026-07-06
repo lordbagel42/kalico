@@ -1249,6 +1249,18 @@ Diagnostic override of the ODrive watchdog for one motor axis. Not
 needed in normal use -- the watchdog is managed automatically by
 ODRIVE_ARM/ODRIVE_DISARM.
 
+#### ODRIVE_ENCODER_DIAGNOSE
+`ODRIVE_ENCODER_DIAGNOSE AXIS=<name> [DURATION=<seconds>]`:
+Samples the axis's raw encoder signal (shadow_count for
+encoder_mode: incremental, hall_state for encoder_mode: hall) for
+`DURATION` seconds (default 3.0) and reports whether it looks like a
+clean signal, a noisy/inconsistent one (loose connection, missing
+encoder power/ground, crosstalk), or one that never changed at all
+(wiring/power problem, or the shaft never actually moved). Move the
+shaft by hand while this runs. Intended to be run *before*
+ODRIVE_CALIBRATE, to rule out a wiring problem before spending time on
+calibration and CPR/pole_pairs tuning.
+
 ### [mcp4018]
 
 The following command is available when a

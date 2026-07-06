@@ -60,6 +60,18 @@ INPUT_MODE_CHOICES = {
     "pos_filter": INPUT_MODE_POS_FILTER,
 }
 
+# Encoder modes (Encoder.Mode). HALL is for BLDC motors whose only
+# feedback is 3 raw hall sensor lines wired into the standard A/B/Z
+# encoder input (hall A/B/C -> A/B/Z); cpr for hall mode is conventionally
+# 6 * pole_pairs (6 hall states per electrical revolution).
+ENCODER_MODE_INCREMENTAL = 0
+ENCODER_MODE_HALL = 1
+
+ENCODER_MODE_CHOICES = {
+    "incremental": ENCODER_MODE_INCREMENTAL,
+    "hall": ENCODER_MODE_HALL,
+}
+
 MOTOR_TYPE_CHOICES = {
     "high_current": 0,
     "gimbal": 2,

@@ -51,6 +51,9 @@ class ODriveAxis:
             "motor_type", properties.MOTOR_TYPE_CHOICES, "high_current"
         )
         self.encoder_cpr = config.getint("encoder_cpr", minval=1)
+        self.encoder_mode = config.getchoice(
+            "encoder_mode", properties.ENCODER_MODE_CHOICES, "incremental"
+        )
         self.encoder_use_index = config.getboolean("encoder_use_index", False)
         self.encoder_bandwidth = config.getfloat(
             "encoder_bandwidth", 1000.0, above=0.0
@@ -146,6 +149,11 @@ class ODriveAxis:
                 "ODRIVE_WATCHDOG",
                 self.cmd_ODRIVE_WATCHDOG,
                 "Diagnostic override of the ODrive watchdog",
+            ),
+            (
+                "ODRIVE_ENCODER_DIAGNOSE",
+                self.cmd_ODRIVE_ENCODER_DIAGNOSE,
+                "Sample raw encoder signal health for wiring diagnostics",
             ),
         ]
         for cmd, func, desc in commands:
@@ -280,8 +288,11 @@ class ODriveAxis:
                 self.vel_limit,
             )
         )
-        return base + " encoder_cpr=%d input_mode=%s" % (
+        return base + " encoder_cpr=%d encoder_mode=%s input_mode=%s" % (
             self.encoder_cpr,
+            "hall"
+            if self.encoder_mode == properties.ENCODER_MODE_HALL
+            else "incremental",
             self.input_mode_name,
         )
 
@@ -325,6 +336,7 @@ class ODriveAxis:
             self.prop("motor.config.torque_constant"), self.torque_constant
         )
         t.write_property(self.prop("motor.config.motor_type"), self.motor_type)
+        t.write_property(self.prop("encoder.config.mode"), self.encoder_mode)
         t.write_property(self.prop("encoder.config.cpr"), self.encoder_cpr)
         t.write_property(
             self.prop("encoder.config.use_index"),
@@ -867,3 +879,98 @@ class ODriveAxis:
                 (" (timeout=%.2fs)" % timeout) if timeout is not None else "",
             )
         )
+
+    cmd_ODRIVE_ENCODER_DIAGNOSE_help = (
+        "Sample raw encoder signal health for wiring diagnostics"
+    )
+
+    def cmd_ODRIVE_ENCODER_DIAGNOSE(self, gcmd):
+        # Automates the manual "watch the raw signal while wiggling the
+        # shaft" check that's the fastest way to tell a real wiring/
+        # connection problem apart from a config problem (cpr, pole_pairs,
+        # encoder_mode) -- see the "Encoder wiring diagnostics" section of
+        # docs/ODrive_Implementation_Spec.md.
+        self._require_connected(gcmd)
+        duration = gcmd.get_float("DURATION", 3.0, above=0.0, maxval=30.0)
+        t = self.board.transport
+        is_hall = self.encoder_mode == properties.ENCODER_MODE_HALL
+        prop_path = self.prop(
+            "encoder.hall_state" if is_hall else "encoder.shadow_count"
+        )
+        gcmd.respond_info(
+            "ODrive axis %s: sampling raw %s for %.1fs -- move the shaft"
+            " by hand now."
+            % (
+                self.name,
+                "hall_state" if is_hall else "shadow_count",
+                duration,
+            )
+        )
+        samples = []
+        deadline = self.reactor.monotonic() + duration
+        while self.reactor.monotonic() < deadline:
+            now = self.reactor.monotonic()
+            raw = t.read_property_sync(prop_path, timeout=0.5)
+            try:
+                val = int(float(raw)) if raw is not None else None
+            except (TypeError, ValueError):
+                val = None
+            if val is not None:
+                samples.append(val)
+            self.reactor.pause(now + 0.02)
+        if not samples:
+            raise gcmd.error(
+                "ODrive axis %s: no readable samples -- check the encoder"
+                " is wired and the ODrive is connected" % (self.name,)
+            )
+        changes = sum(1 for a, b in zip(samples, samples[1:]) if a != b)
+        if is_hall:
+            # A healthy 3-line hall sensor is never fully low (0) or fully
+            # high (7), and each real commutation step changes exactly one
+            # of the 3 bits -- anything else is either a wiring fault (a
+            # stuck/disconnected line) or electrical noise on the
+            # connection, not a config problem.
+            invalid = sum(1 for v in samples if v not in (1, 2, 3, 4, 5, 6))
+            bad_jumps = sum(
+                1
+                for a, b in zip(samples, samples[1:])
+                if a != b and bin(a ^ b).count("1") != 1
+            )
+            bad = invalid + bad_jumps
+            verdict = self._diagnose_verdict(changes, bad)
+            gcmd.respond_info(
+                "ODrive axis %s: hall_state samples=%d changes=%d"
+                " invalid_state(0/7)=%d non-single-bit_jumps=%d -> %s"
+                % (
+                    self.name,
+                    len(samples),
+                    changes,
+                    invalid,
+                    bad_jumps,
+                    verdict,
+                )
+            )
+        else:
+            big_jumps = sum(
+                1 for a, b in zip(samples, samples[1:]) if abs(b - a) > 4
+            )
+            verdict = self._diagnose_verdict(changes, big_jumps)
+            gcmd.respond_info(
+                "ODrive axis %s: shadow_count samples=%d changes=%d"
+                " large_jumps(>4)=%d -> %s"
+                % (self.name, len(samples), changes, big_jumps, verdict)
+            )
+
+    def _diagnose_verdict(self, changes, bad_count):
+        if changes == 0:
+            return (
+                "signal never changed -- check wiring/power to the encoder"
+                " (and make sure the shaft actually moved)"
+            )
+        if bad_count > 0 and bad_count >= max(1, changes // 4):
+            return (
+                "signal changed but looks noisy/inconsistent -- check for"
+                " a loose connection, missing encoder power/ground, or"
+                " crosstalk"
+            )
+        return "signal looks clean"
