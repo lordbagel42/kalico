@@ -3309,6 +3309,20 @@ odrive_axis: my_x_motor
 #   distance-moved bookkeeping (homing, rehoming tolerance checks).
 rotation_distance:
 #   See the "stepper" section for a description of this parameter.
+#shaper_type: none
+#   Optional input shaping for this axis's setpoint stream. One of
+#   "none", "zv", "mzv", "zvd", "ei", "2hump_ei", "3hump_ei" -- the same
+#   shaper types [input_shaper] supports, but reimplemented as a
+#   host-side pre-filter over the setpoint stream, since ODrive axes
+#   stream setpoints directly from the trapq and never go through
+#   step generation, where a normal [input_shaper] section actually
+#   takes effect. Requires shaper_freq to be set.
+#shaper_freq:
+#   The resonance frequency (Hz) to target, same meaning as
+#   [input_shaper]'s shaper_freq_x/shaper_freq_y. Required if
+#   shaper_type is set to anything other than "none".
+#damping_ratio: 0.1
+#   Same meaning as [input_shaper]'s damping_ratio_x/damping_ratio_y.
 #homing_current:
 #   Reduced motor current (in amps) applied during a sensorless
 #   homing move (endstop_pin: <odrive_axis name>:virtual_endstop). The

@@ -539,6 +539,40 @@ are permitted but documented as increasingly jitter-sensitive, per the
 that USB bulk-transfer scheduling, not the ODrive firmware, is the
 limiting factor for setpoint-streaming latency on this hardware.
 
+### Input shaping
+
+Kalico's `[input_shaper]` mechanism has zero effect on an ODrive-driven
+rail. It works by swapping a stepper's `stepper_kinematics` for a
+wrapper (`klippy/chelper/kin_shaper.c`) whose `calc_position_cb`
+convolves the *original* kinematics' position at several time offsets
+— but that convolution is only ever invoked from
+`itersolve_gen_steps_range` (`klippy/chelper/itersolve.c`), the MCU
+step-generation loop, which this module never calls into (see
+`odrv_stepper.py`'s module docstring: no stepcompress sink, no
+`itersolve_generate_steps`). `SetpointStreamer` samples the trapq
+directly instead.
+
+`shaper_type`/`shaper_freq`/`damping_ratio` on the rail section
+(`[stepper_x]`, etc.) reimplement the same convolution as a host-side
+pre-filter over the setpoint stream: on each TX tick, instead of one
+`_sample_trapq(print_time)` call, one call per shaper impulse at
+`print_time + mean_t - t_i`, weighted by each impulse's normalized
+amplitude — exactly `kin_shaper.c`'s `init_shaper`/`shift_pulses`/
+`calc_position` math (`mean_t` is the amplitude-weighted mean of the
+impulse times, which is what makes the filter an identity transform
+for constant-velocity motion rather than a pure delay), with impulse
+coefficients reused directly from `shaper_defs.py` rather than
+reimplemented. Both position *and* velocity feed-forward are shaped
+this way (shaping is linear, so shaping position and differentiating
+commutes with shaping velocity directly).
+
+This is a **per-axis, ODrive-only** option, separate from the global
+`[input_shaper]` section (which still applies normally to any
+MCU-stepper axes on the same printer) — an ODrive axis is not
+necessarily part of the same X/Y resonance system `[input_shaper]`
+assumes, so shaping it independently, per motor, is the more natural
+fit here.
+
 ### ODrive-side mode
 
 At CONFIGURING time this module sets:

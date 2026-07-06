@@ -7,15 +7,34 @@
 # "now" (to compensate for USB + ODrive filter latency), converts it to
 # turns, and streams it as an ASCII "p" setpoint line.
 #
+# Optional input shaping (shaper_type/shaper_freq/damping_ratio): Kalico's
+# [input_shaper] mechanism (klippy/chelper/kin_shaper.c) shapes motion by
+# swapping a stepper's stepper_kinematics for a wrapper whose
+# calc_position_cb convolves the *original* kinematics' position samples
+# at several time offsets -- but that convolution only ever runs from
+# itersolve_gen_steps_range (klippy/chelper/itersolve.c), the MCU step-
+# generation loop. This module never calls into itersolve at all (see
+# odrv_stepper.py's module docstring) -- it samples the trapq directly --
+# so a normal [input_shaper] section has zero effect on an ODrive-driven
+# rail. This reimplements the same convolution (mirroring kin_shaper.c's
+# init_shaper/shift_pulses/calc_position, and reusing shaper_defs.py's
+# per-shaper-type impulse coefficients) as a host-side pre-filter over the
+# setpoint stream instead.
+#
 # Copyright (C) 2026  Kalico contributors
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
 import collections
 
 from ... import chelper
+from .. import shaper_defs
 
 RING_BUFFER_SECONDS = 4.0
 VEL_EPSILON = 0.0005
+
+SHAPER_INIT_FUNCS = {
+    cfg.name: cfg.init_func for cfg in shaper_defs.INPUT_SHAPERS
+}
 
 
 class SetpointStreamer:
@@ -35,6 +54,44 @@ class SetpointStreamer:
         ffi_main, ffi_lib = chelper.get_ffi()
         self._ffi_main = ffi_main
         self._ffi_lib = ffi_lib
+        self._shaper_pulses = self._build_shaper(config)
+
+    def _build_shaper(self, config):
+        shaper_type = config.get("shaper_type", "none").lower()
+        if shaper_type == "none":
+            return None
+        if shaper_type not in SHAPER_INIT_FUNCS:
+            raise config.error(
+                "Unknown shaper_type '%s' in section '%s' (expected one of"
+                " none, %s)"
+                % (
+                    shaper_type,
+                    config.get_name(),
+                    ", ".join(sorted(SHAPER_INIT_FUNCS)),
+                )
+            )
+        shaper_freq = config.getfloat("shaper_freq", above=0.0)
+        damping_ratio = config.getfloat(
+            "damping_ratio",
+            shaper_defs.DEFAULT_DAMPING_RATIO,
+            above=0.0,
+            below=1.0,
+        )
+        amplitudes, times = SHAPER_INIT_FUNCS[shaper_type](
+            shaper_freq, damping_ratio
+        )
+        total_a = sum(amplitudes)
+        amplitudes = [a / total_a for a in amplitudes]
+        # Mirrors kin_shaper.c's shift_pulses: centering the convolution on
+        # its amplitude-weighted mean time makes it an identity transform
+        # for constant-velocity motion (shaped(v*t) == v*t), not just a
+        # pure delay -- see calc_position/shift_pulses there for the
+        # original derivation. `offset` here is exactly kin_shaper.c's
+        # per-pulse final pulse time (mean_t - t_i), the amount to add to
+        # the target sample time for that pulse.
+        mean_t = sum(a * t for a, t in zip(amplitudes, times))
+        offsets = [mean_t - t for t in times]
+        return list(zip(amplitudes, offsets))
 
     def set_trapq(self, tq):
         self._trapq = tq
@@ -128,6 +185,22 @@ class SetpointStreamer:
         vel_mm = (pos_mm2 - pos_mm) / dt if dt > 0.0 else 0.0
         return pos_mm, vel_mm
 
+    def _sample_trapq_shaped(self, target_pt):
+        pos_sum = 0.0
+        vel_sum = 0.0
+        for amplitude, offset in self._shaper_pulses:
+            sample_pt = min(target_pt + offset, self._sample_horizon)
+            pos_mm, vel_mm = self._sample_trapq(sample_pt)
+            if pos_mm is None:
+                # Not enough trapq history/lookahead for this pulse yet
+                # (e.g. right at the start of a move sequence) -- fall
+                # back to the same "hold last position" behavior as the
+                # unshaped path rather than a partial, meaningless sum.
+                return None, 0.0
+            pos_sum += amplitude * pos_mm
+            vel_sum += amplitude * vel_mm
+        return pos_sum, vel_sum
+
     def _tx_tick(self, eventtime):
         board = self.board
         target_pt = (
@@ -135,7 +208,10 @@ class SetpointStreamer:
         )
         if target_pt > self._sample_horizon:
             target_pt = self._sample_horizon
-        pos_mm, vel_mm = self._sample_trapq(target_pt)
+        if self._shaper_pulses is None:
+            pos_mm, vel_mm = self._sample_trapq(target_pt)
+        else:
+            pos_mm, vel_mm = self._sample_trapq_shaped(target_pt)
         if pos_mm is None:
             pos_turns = self._last_sent_turns
             vel_turns = 0.0
