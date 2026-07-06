@@ -54,8 +54,11 @@ class FakeTransport:
         self.writes = []
         self.props = {}
         self.read_sequences = {}
+        self.fail_write_paths = set()
 
     def write_property(self, path, value):
+        if path in self.fail_write_paths:
+            raise IOError("simulated serial write failure for %s" % (path,))
         self.writes.append((path, value))
         self.props[path] = value
 
@@ -317,3 +320,26 @@ def test_encoder_diagnose_flags_noisy_hall_signal():
     gcmd = FakeGCmd({"DURATION": 0.15})
     axis.cmd_ODRIVE_ENCODER_DIAGNOSE(gcmd)
     assert any("noisy" in r for r in gcmd.responses)
+
+
+def test_emergency_idle_survives_and_logs_a_failed_write(caplog):
+    # on_emergency_idle() runs from ODriveBoard._handle_shutdown's loop
+    # over every axis -- a failed write for one axis must not raise (or
+    # it would abort disarming the *other* axes on the same board) and
+    # must not be silently swallowed either, since a lost emergency-idle
+    # write is exactly the kind of thing an operator needs visibility
+    # into (see overnight/OVERNIGHT_LOG.md's e-stop review).
+    printer, board = _printer_with_board(reactor=reactor_mod.Reactor())
+    axis = _build_axis(printer, {"encoder_cpr": 8192})
+    axis.push_config()
+    axis.calibrated_motor = True
+    axis.calibrated_encoder = True
+    axis.cmd_ODRIVE_ARM(FakeGCmd())
+    board.transport.fail_write_paths.add(axis.prop("requested_state"))
+
+    axis.on_emergency_idle()
+
+    assert axis.armed is False
+    assert any(
+        "failed to send emergency-idle" in r.message for r in caplog.records
+    )

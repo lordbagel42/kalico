@@ -427,7 +427,20 @@ class ODriveAxis:
                     self.prop("requested_state"), properties.AXIS_STATE_IDLE
                 )
             except Exception:
-                pass
+                # Best-effort: this fires from shutdown/estop paths where
+                # raising would abort disarming the *other* axes on this
+                # board (see ODriveBoard._handle_shutdown, which calls
+                # this for every axis in a loop) -- but a failure here
+                # means the idle command silently never reached the
+                # device, which is exactly the situation an operator
+                # needs to know about, not have swallowed quietly. The
+                # ODrive's own watchdog is still the real backstop if
+                # this write is lost.
+                logging.exception(
+                    "odrive_axis %s: failed to send emergency-idle"
+                    " requested_state write",
+                    self.full_name,
+                )
         self.armed = False
         self._stop_watchdog_feed()
         if self.streamer is not None:
