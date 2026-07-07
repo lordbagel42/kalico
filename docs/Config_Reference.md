@@ -4324,6 +4324,46 @@ PCA9632 LED support. The PCA9632 is used on the FlashForge Dreamer.
 #   See the "led" section for information on these parameters.
 ```
 
+### [chamber_led]
+
+Support for a chamber LED strip driven by a Particle Boron 404X (running
+custom firmware) connected over USB (one may define any number of
+sections with a "chamber_led" prefix). Behaves like any other LED for
+`SET_LED`/`SET_LED_TEMPLATE` purposes; see the
+[command reference](G-Codes.md#chamber_led) for its additional direct
+commands and [Chamber_LED_Implementation_Spec.md](Chamber_LED_Implementation_Spec.md)
+for the full design.
+
+```
+[chamber_led my_chamber_led]
+serial:
+#   The USB serial port of the Particle Boron (for example,
+#   /dev/serial/by-id/usb-Particle_Boron_...). This parameter must be
+#   provided.
+#baud: 115200
+#   The baud rate to use for the USB-CDC connection. This is mostly
+#   cosmetic (USB-CDC does not have a real baud rate) but must be
+#   specified. The default is 115200.
+#color_printing:
+#color_paused:
+#color_complete:
+#color_error:
+#color_idle:
+#   Optional "R,G,B" or "R,G,B,BRIGHTNESS" strings (each element
+#   0-255) that, if set, automatically change the chamber LED's color
+#   when a print starts, is paused, completes, errors, or is
+#   cancelled/returns to idle, respectively. None are required; if
+#   none are set the chamber LED is only ever controlled manually via
+#   SET_LED/SET_LED_TEMPLATE or the CHAMBER_LED_* commands.
+#initial_RED: 0.0
+#initial_GREEN: 0.0
+#initial_BLUE: 0.0
+#initial_WHITE: 0.0
+#   See the "led" section for information on these parameters. Note
+#   that WHITE has no dedicated wire-protocol channel (the physical
+#   LEDs are WS2812 RGB) and is folded additively into RED/GREEN/BLUE.
+```
+
 ## Additional servos, buttons, and other pins
 
 ### [servo]
