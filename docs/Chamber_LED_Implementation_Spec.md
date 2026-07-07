@@ -166,9 +166,13 @@ three layers:
   device-less Kalico klippy test (see `odrive.cfg`/`odrive.test`,
   `led.cfg`/`led.test`): the configured serial path doesn't exist, so
   the module never connects, exercising config parsing (including the
-  `color_*` auto-color options), `SET_LED`/`SET_LED_TEMPLATE` wiring,
-  and graceful not-connected handling of `CHAMBER_LED_STATUS`/
-  `CHAMBER_LED_OFF`.
+  `color_*` auto-color options) and `SET_LED`/`SET_LED_TEMPLATE`
+  wiring. `CHAMBER_LED_STATUS`/`CHAMBER_LED_OFF` correctly raise a
+  gcode error while not connected, but (like `odrive.test` skipping
+  `ODRIVE_READ`/`ODRIVE_WRITE`) aren't exercised by this batch-mode
+  test, since it treats any unhandled gcode error as a fatal shutdown
+  rather than the interactive console's tolerant error reporting; their
+  wire-level behavior is covered by `test_chamber_led_mock.py` instead.
 
 `scripts/chamber_led_mock.py` can also be run standalone against a
 real `[chamber_led]` config for interactive testing:
