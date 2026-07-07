@@ -143,6 +143,7 @@ nav:
     - Colinear_Tripteron.md
     - ODrive_Implementation_Spec.md
     - ODrive_Mainsail_Integration_Plan.md
+    - Chamber_LED_Implementation_Spec.md
     - Protocol.md
     - API_Server.md
     - MCU_Commands.md

@@ -1261,6 +1261,25 @@ shaft by hand while this runs. Intended to be run *before*
 ODRIVE_CALIBRATE, to rule out a wiring problem before spending time on
 calibration and CPR/pole_pairs tuning.
 
+### [chamber_led]
+
+The following commands are available when a
+[chamber_led config section](Config_Reference.md#chamber_led) is
+enabled. See [Chamber_LED_Implementation_Spec.md](Chamber_LED_Implementation_Spec.md)
+for the full design. Also see [SET_LED](#set_led) and
+[SET_LED_TEMPLATE](#set_led_template) below, which work with a
+chamber_led the same as any other LED.
+
+#### CHAMBER_LED_OFF
+`CHAMBER_LED_OFF CHAMBER_LED=<name>`: Turn off the chamber LED
+directly (sends the wire protocol's `OFF` command rather than a
+`SET_LED` color of black).
+
+#### CHAMBER_LED_STATUS
+`CHAMBER_LED_STATUS CHAMBER_LED=<name>`: Query and report the
+controller's raw `STATUS` reply (mode, color, brightness, uptime, and
+free memory), bypassing the generic LED abstraction.
+
 ### [mcp4018]
 
 The following command is available when a

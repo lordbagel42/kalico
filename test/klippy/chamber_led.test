@@ -1,0 +1,21 @@
+# Test case for chamber_led support (device-less: no real Boron is
+# attached, so this only exercises config parsing -- including the
+# color_printing/color_paused/color_complete/color_error/color_idle
+# auto-color options -- and LEDHelper wiring via SET_LED/
+# SET_LED_TEMPLATE. CHAMBER_LED_STATUS/CHAMBER_LED_OFF correctly raise
+# a gcode error while not connected, and (unlike the interactive
+# console) this batch test harness treats any unhandled gcode error as
+# a fatal shutdown -- so, same as odrive.test does for ODRIVE_READ/
+# ODRIVE_WRITE, they are intentionally not exercised here. See
+# test/test_chamber_led_mock.py for wire-protocol-level coverage of
+# those commands against a simulated serial responder.
+CONFIG chamber_led.cfg
+DICTIONARY atmega2560.dict
+
+SET_LED LED=chamber RED=0.2 GREEN=0.1 BLUE=0.0
+SET_LED LED=chamber RED=0.3 TRANSMIT=0
+SET_LED LED=chamber RED=0.4 WHITE=0.1
+SET_LED LED=chamber RED=0.5 SYNC=0
+
+SET_LED_TEMPLATE LED=chamber TEMPLATE=dtest
+SET_LED_TEMPLATE LED=chamber TEMPLATE=
