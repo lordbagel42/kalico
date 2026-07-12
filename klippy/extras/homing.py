@@ -63,6 +63,7 @@ class HomingMove:
         self.toolhead = toolhead
         self.stepper_positions = []
         self.distance_elapsed = []
+        self.trigger_times = {}
 
     def get_mcu_endstops(self):
         return [es for es, name in self.endstops]
@@ -154,6 +155,11 @@ class HomingMove:
                 trigger_times[name] = trigger_time
             elif check_triggered and error is None:
                 error = "No trigger on %s after full movement" % (name,)
+        # Expose which named endstops actually triggered, so a caller that
+        # armed extra endstops as a safety watch (with check_triggered=False)
+        # can tell which ones fired without treating a non-trigger as an
+        # automatic error.
+        self.trigger_times = trigger_times
         # Determine stepper halt positions
         self.toolhead.flush_step_generation()
         for sp in self.stepper_positions:
