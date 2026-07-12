@@ -201,7 +201,8 @@ The printer section controls high level printer settings.
 kinematics:
 #   The type of printer in use. This option may be one of: cartesian,
 #   corexy, corexz, hybrid_corexy, hybrid_corexz, rotary_delta, delta,
-#   deltesian, polar, winch, or none. This parameter must be specified.
+#   colinear_delta, deltesian, polar, winch, or none. This parameter must
+#   be specified.
 max_velocity:
 #   Maximum velocity (in mm/s) of the toolhead (relative to the
 #   print). This value may be changed at runtime using the
@@ -533,6 +534,111 @@ radius:
 #use_probe_xy_offsets: False
 #   If True, apply the `[probe]` XY offsets to the probed positions. The
 #   default is False.
+```
+
+### Colinear Delta Kinematics
+
+See [Colinear_Delta.md](Colinear_Delta.md) for an overview of the mechanism,
+a setup guide, and calibration notes.
+
+A colinear delta is two independent linear-delta mechanisms that share the
+same three physical (colinear) rails: a *toolhead* delta (steppers a/b/c)
+positions the nozzle and a *bed* delta (steppers d/e/f) positions the build
+plate. Each rail carries two carriages (one per mechanism), so the machine
+has six motors and six endstops. The commanded coordinate is the position of
+the nozzle relative to the part; the two mechanisms share each move (a
+`motion_split` fraction to the toolhead, the remainder to the bed) and the
+bed mechanism runs in a coordinate frame rotated about Z relative to the
+toolhead frame (`secondary_rotation`, 180 degrees for a typical colinear
+delta).
+
+Only parameters specific to colinear delta printers are described here - see
+[common kinematic settings](#common-kinematic-settings) for available
+parameters. The `delta_radius`, `print_radius`, `arm_length`, `angle`, and
+`[delta_calibrate]` parameters behave as for [linear delta](#linear-delta-kinematics).
+
+```
+[printer]
+kinematics: colinear_delta
+max_z_velocity:
+#   For colinear delta printers this limits the maximum velocity (in mm/s)
+#   of moves with z axis movement. The default is to use max_velocity.
+#max_z_accel:
+#   Maximum acceleration (in mm/s^2) of movement along the z axis. The
+#   default is to use max_accel.
+#minimum_z_position: 0
+#   The minimum Z position that the user may command the head to move to.
+#   The default is 0.
+delta_radius:
+#   Radius (in mm) of the horizontal circle formed by the three shared
+#   rails (towers). Both the toolhead and bed mechanisms use this radius.
+#   This parameter must be provided.
+#print_radius:
+#   The radius (in mm) of valid toolhead XY coordinates. The default is to
+#   use delta_radius. Configuration is rejected if this exceeds the radius
+#   reachable by either mechanism given its arm lengths and the split.
+#motion_split: 0.5
+#   Fraction of each move performed by the toolhead mechanism; the bed
+#   mechanism performs the remainder (1 - motion_split). The default of 0.5
+#   splits every move evenly between the two mechanisms. Must be between 0
+#   and 1 (exclusive).
+#secondary_rotation: 180
+#   Rotation (in degrees, about Z) of the bed mechanism's coordinate frame
+#   relative to the toolhead frame. The default of 180 matches a typical
+#   colinear delta where the build plate delta is mounted opposite the
+#   toolhead delta.
+
+# The stepper_a/b/c sections describe the three toolhead-delta carriages
+# (front-left at 210, front-right at 330, and rear at 90 degrees). stepper_a
+# also controls the homing parameters (homing_speed, homing_retract_dist)
+# for the toolhead towers.
+[stepper_a]
+position_endstop:
+#   Distance (in mm) between the nozzle and the bed when the nozzle is in
+#   the center of the build area and the toolhead endstop triggers. This
+#   parameter must be provided for stepper_a; stepper_b and stepper_c
+#   default to the value specified for stepper_a.
+arm_length:
+#   Length (in mm) of the diagonal rod connecting this toolhead carriage to
+#   the nozzle effector. Must be provided for stepper_a; stepper_b and
+#   stepper_c default to the stepper_a value.
+#angle:
+#   Angle (in degrees) of the tower. The default is 210 for stepper_a, 330
+#   for stepper_b, and 90 for stepper_c.
+
+[stepper_b]
+[stepper_c]
+
+# The stepper_d/e/f sections describe the three bed-delta carriages. Each
+# rides the same physical rail as the matching toolhead carriage
+# (d<->a, e<->b, f<->c), so its angle defaults to the matching toolhead
+# tower and its arm_length defaults to the matching toolhead arm. stepper_d
+# controls the homing parameters for the bed towers.
+[stepper_d]
+position_endstop:
+#   Distance (in mm) of the bed effector, in the bed frame, when the bed
+#   endstop triggers. Must be provided for stepper_d; stepper_e and
+#   stepper_f default to the stepper_d value.
+#arm_length:
+#   Length (in mm) of the diagonal rod connecting this bed carriage to the
+#   bed effector. Defaults to the arm_length of the matching toolhead
+#   carriage on the same rail.
+#angle:
+#   Angle (in degrees) of the tower. Defaults to the matching toolhead
+#   tower angle (stepper_d<->stepper_a, etc.) because the rails are shared.
+
+[stepper_e]
+[stepper_f]
+
+# DELTA_CALIBRATE calibrates the toolhead mechanism (the bed mechanism is
+# assumed symmetric). See Colinear_Delta.md for details.
+[delta_calibrate]
+radius:
+#   Radius (in mm) of the area that may be probed. This parameter must be
+#   provided.
+#speed: 50
+#horizontal_move_z: 5
+#use_probe_xy_offsets: False
 ```
 
 ### Deltesian Kinematics

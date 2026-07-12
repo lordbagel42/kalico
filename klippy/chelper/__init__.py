@@ -39,6 +39,7 @@ SOURCE_FILES = [
     "kin_extruder.c",
     "kin_shaper.c",
     "kin_idex.c",
+    "kin_colinear_delta.c",
 ]
 DEST_LIB = "c_helper.so"
 OTHER_FILES = [
@@ -163,6 +164,12 @@ defs_kin_winch = """
         , double anchor_y, double anchor_z);
 """
 
+defs_kin_colinear_delta = """
+    struct stepper_kinematics *colinear_delta_stepper_alloc(double arm2
+        , double tower_x, double tower_y
+        , double cos_coef, double sin_coef, double z_coef);
+"""
+
 defs_kin_extruder = """
     struct stepper_kinematics *extruder_stepper_alloc(void);
     void extruder_set_pressure_advance(struct stepper_kinematics *sk
@@ -256,6 +263,7 @@ defs_all = [
     defs_kin_polar,
     defs_kin_rotary_delta,
     defs_kin_winch,
+    defs_kin_colinear_delta,
     defs_kin_extruder,
     defs_kin_shaper,
     defs_kin_idex,

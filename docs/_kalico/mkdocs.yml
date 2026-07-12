@@ -122,6 +122,7 @@ nav:
       - Z_Calibration.md
       - Bed_Level.md
       - Delta_Calibrate.md
+      - Colinear_Delta.md
       - Probe_Calibrate.md
       - BLTouch.md
       - Manual_Level.md
@@ -140,6 +141,7 @@ nav:
   - Developer Documentation:
     - Code_Overview.md
     - Kinematics.md
+    - developers/Colinear_Delta_Agent_Guide.md
     - Protocol.md
     - API_Server.md
     - MCU_Commands.md
