@@ -149,7 +149,7 @@ class ColinearDeltaKinematics:
         # direction; see docs/Colinear_Delta.md for how to tell which case
         # applies to a given machine.
         self.bed_z_inverted = config.getboolean("bed_z_inverted", True)
-        bed_z_sign = -1.0 if self.bed_z_inverted else 1.0
+        self.bed_z_sign = bed_z_sign = -1.0 if self.bed_z_inverted else 1.0
         tool_coef = (split * ct, split * st, split)
         bed_coef = (
             -(1.0 - split) * ct,
@@ -314,7 +314,24 @@ class ColinearDeltaKinematics:
         ct, st = self.cos_theta, self.sin_theta
         dx = t_eff[0] - b_eff[0]
         dy = t_eff[1] - b_eff[1]
-        dz = t_eff[2] - b_eff[2]
+        # Z is NOT a simple T-B difference like X/Y: tool_coef.z is always
+        # +split, but bed_coef.z is bed_z_sign*(1-split), where bed_z_sign
+        # flips with bed_z_inverted (X/Y coefficients never flip sign this
+        # way - they're always -(1-split)*ct/st - which is why only Z needs
+        # this correction). t_eff.z == split*P.z and b_eff.z ==
+        # bed_z_sign*(1-split)*P.z always hold (trilateration recovers the
+        # additive z_coef term exactly), so P.z == t_eff.z + bed_z_sign*b_eff.z
+        # in general: a difference when bed_z_inverted is True (the default,
+        # where bed_coef.z is already negative), but a SUM when it's False.
+        # Using a plain difference unconditionally here made calc_position's
+        # reported Z always exactly 0 for any move on a bed_z_inverted=False
+        # machine with motion_split=0.5 (bed_coef.z then equals tool_coef.z
+        # exactly) - live motion was never affected (that's driven directly
+        # by the per-stepper coefficients, not this reconstruction), but
+        # anything reading position back this way - MANUAL_PROBE,
+        # DELTA_CALIBRATE, GET_POSITION's "kinematic:" line - saw zero
+        # change regardless of how far the machine actually moved.
+        dz = t_eff[2] + self.bed_z_sign * b_eff[2]
         return [ct * dx + st * dy, -st * dx + ct * dy, dz]
 
     def calc_position(self, stepper_positions):
