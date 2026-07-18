@@ -109,7 +109,7 @@ class ColinearDeltaKinematics:
             for sconfig in stepper_configs[:3]
         ]
         # Bed arms default to the matching toolhead arm on the same rail
-        bed_arms = [
+        self.bed_arms = bed_arms = [
             stepper_configs[3 + i].getfloat(
                 "arm_length", tool_arms[i], above=radius
             )
@@ -608,8 +608,14 @@ class ColinearDeltaKinematics:
         }
 
     def get_calibration(self):
-        # DELTA_CALIBRATE operates on the toolhead mechanism; the bed mechanism
-        # is assumed to be symmetric (see docs/Colinear_Delta.md).
+        # DELTA_CALIBRATE operates on the toolhead mechanism only (steppers
+        # a/b/c).  This is the "one side" of the machine: a bed probe measures
+        # the nozzle *relative* to the plate, and at a single motion_split the
+        # toolhead-delta and bed-delta contributions to that relative surface
+        # are not separable, so DELTA_CALIBRATE can only pin down one side.
+        # COLINEAR_DELTA_CALIBRATE (see klippy/extras/colinear_delta_calibrate)
+        # calibrates the bed mechanism (steppers d/e/f) as well; it consumes
+        # get_full_calibration() below.
         endstops = [
             rail.get_homing_info().position_endstop
             for rail in self.toolhead_rails
@@ -620,6 +626,239 @@ class ColinearDeltaKinematics:
         ]
         return DeltaCalibration(
             self.radius, self.tool_angles, self.tool_arms, endstops, stepdists
+        )
+
+    def get_full_calibration(self):
+        # Both-mechanism calibration model consumed by
+        # COLINEAR_DELTA_CALIBRATE.  Radius and tower angles are shared (the
+        # three rails are physically shared), so only the per-side arm lengths
+        # and the six endstops can differ between the toolhead and bed deltas.
+        endstops = [
+            rail.get_homing_info().position_endstop for rail in self.rails
+        ]
+        stepdists = [
+            rail.get_steppers()[0].get_step_dist() for rail in self.rails
+        ]
+        return ColinearDeltaCalibration(
+            self.radius,
+            self.tool_angles,
+            self.tool_arms,
+            self.bed_arms,
+            endstops,
+            stepdists,
+            self.split,
+            self.cos_theta,
+            self.sin_theta,
+            self.bed_z_sign,
+        )
+
+
+# Calibration model for the COLINEAR_DELTA_CALIBRATE tool.  Mirrors
+# DeltaCalibration (klippy/kinematics/delta.py) but models BOTH the toolhead
+# delta (steppers a/b/c) and the bed delta (steppers d/e/f) at once.  A
+# "stable position" here is a 6-tuple of steps-from-endstop (one per rail);
+# because it is expressed in step counts it is independent of the software
+# geometry parameters and of motion_split, which is what lets probe samples
+# captured at different splits be combined in a single joint solve.
+class ColinearDeltaCalibration:
+    def __init__(
+        self,
+        radius,
+        angles,
+        tool_arms,
+        bed_arms,
+        endstops,
+        stepdists,
+        split,
+        cos_theta,
+        sin_theta,
+        bed_z_sign,
+    ):
+        # angles: 3 shared tower angles.  endstops/stepdists: 6 (a/b/c/d/e/f).
+        self.radius = radius
+        self.angles = angles
+        self.tool_arms = tool_arms
+        self.bed_arms = bed_arms
+        self.arms = list(tool_arms) + list(bed_arms)
+        self.endstops = endstops
+        self.stepdists = stepdists
+        self.split = split
+        self.cos_theta = cos_theta
+        self.sin_theta = sin_theta
+        self.bed_z_sign = bed_z_sign
+        # Shared tower cartesian positions (bed rides the same three rails)
+        radian_angles = [math.radians(a) for a in angles]
+        towers3 = [
+            (math.cos(a) * radius, math.sin(a) * radius) for a in radian_angles
+        ]
+        self.towers = towers3 + towers3
+        radius2 = radius**2
+        self.abs_endstops = [
+            e + math.sqrt(a**2 - radius2) for e, a in zip(endstops, self.arms)
+        ]
+        # Per-rail affine coefficients (identical to the kinematics' coefs):
+        #   toolhead effector = split      * Rz(theta) * P
+        #   bed effector      = -(1-split) * Rz(theta) * P (z uses bed_z_sign)
+        s = split
+        k = 1.0 - split
+        ct, st = cos_theta, sin_theta
+        tool_coef = (s * ct, s * st, s)
+        bed_coef = (-k * ct, -k * st, bed_z_sign * k)
+        self.coefs = [tool_coef] * 3 + [bed_coef] * 3
+
+    def _effector(self, coord, coef):
+        # ex = cos_coef*x - sin_coef*y ; ey = sin_coef*x + cos_coef*y ;
+        # ez = z_coef*z  (matches kin_colinear_delta.c)
+        x, y, z = coord
+        return (
+            coef[0] * x - coef[1] * y,
+            coef[1] * x + coef[0] * y,
+            coef[2] * z,
+        )
+
+    def calc_stable_position(self, coord):
+        # Steps-from-endstop for all six rails for a commanded coordinate P at
+        # this calibration's motion_split.
+        result = []
+        for i in range(6):
+            ex, ey, ez = self._effector(coord, self.coefs[i])
+            tx, ty = self.towers[i]
+            steppos = (
+                math.sqrt(self.arms[i] ** 2 - (tx - ex) ** 2 - (ty - ey) ** 2)
+                + ez
+            )
+            result.append((self.abs_endstops[i] - steppos) / self.stepdists[i])
+        return result
+
+    def get_position_from_stable(self, stable_position):
+        # Relative nozzle-vs-plate coordinate for a 6-tuple stable position
+        # (independent of motion_split - the FK only needs carriage heights).
+        sphere_z = [
+            es - sp * sd
+            for es, sp, sd in zip(
+                self.abs_endstops, stable_position, self.stepdists
+            )
+        ]
+        t_eff = mathutil.trilateration(
+            [
+                (self.towers[i][0], self.towers[i][1], sphere_z[i])
+                for i in range(3)
+            ],
+            [self.arms[i] ** 2 for i in range(3)],
+        )
+        b_eff = mathutil.trilateration(
+            [
+                (self.towers[i][0], self.towers[i][1], sphere_z[i])
+                for i in range(3, 6)
+            ],
+            [self.arms[i] ** 2 for i in range(3, 6)],
+        )
+        ct, st = self.cos_theta, self.sin_theta
+        dx = t_eff[0] - b_eff[0]
+        dy = t_eff[1] - b_eff[1]
+        dz = t_eff[2] + self.bed_z_sign * b_eff[2]
+        return [ct * dx + st * dy, -st * dx + ct * dy, dz]
+
+    def coordinate_descent_params(self, method):
+        # method "bed": solve only the bed side (needs the toolhead already
+        # calibrated; well conditioned at a single split).
+        # method "joint": solve both sides (needs samples spanning >= 2
+        # motion_split values to be observable - see the module docstring).
+        params = {"radius": self.radius}
+        for i, axis in enumerate("abc"):
+            params["angle_" + axis] = self.angles[i]
+            params["tool_arm_" + axis] = self.tool_arms[i]
+            params["bed_arm_" + axis] = self.bed_arms[i]
+            params["tool_endstop_" + axis] = self.endstops[i]
+            params["bed_endstop_" + axis] = self.endstops[3 + i]
+            params["tool_stepdist_" + axis] = self.stepdists[i]
+            params["bed_stepdist_" + axis] = self.stepdists[3 + i]
+        bed = tuple("bed_arm_" + a for a in "abc") + tuple(
+            "bed_endstop_" + a for a in "abc"
+        )
+        if method == "joint":
+            adj_params = (
+                tuple("tool_arm_" + a for a in "abc")
+                + tuple("tool_endstop_" + a for a in "abc")
+                + bed
+            )
+        else:
+            adj_params = bed
+        return adj_params, params
+
+    def new_calibration(self, params):
+        radius = params["radius"]
+        angles = [params["angle_" + a] for a in "abc"]
+        tool_arms = [params["tool_arm_" + a] for a in "abc"]
+        bed_arms = [params["bed_arm_" + a] for a in "abc"]
+        endstops = [params["tool_endstop_" + a] for a in "abc"] + [
+            params["bed_endstop_" + a] for a in "abc"
+        ]
+        stepdists = [params["tool_stepdist_" + a] for a in "abc"] + [
+            params["bed_stepdist_" + a] for a in "abc"
+        ]
+        return ColinearDeltaCalibration(
+            radius,
+            angles,
+            tool_arms,
+            bed_arms,
+            endstops,
+            stepdists,
+            self.split,
+            self.cos_theta,
+            self.sin_theta,
+            self.bed_z_sign,
+        )
+
+    def save_state(self, configfile):
+        configfile.set("printer", "delta_radius", "%.6f" % (self.radius,))
+        for i, axis in enumerate("abc"):
+            configfile.set(
+                "stepper_" + axis, "angle", "%.6f" % (self.angles[i],)
+            )
+            configfile.set(
+                "stepper_" + axis, "arm_length", "%.6f" % (self.tool_arms[i],)
+            )
+            configfile.set(
+                "stepper_" + axis,
+                "position_endstop",
+                "%.6f" % (self.endstops[i],),
+            )
+        # Bed towers ride the same rails, so they share the tower angle.
+        for i, axis in enumerate("def"):
+            configfile.set(
+                "stepper_" + axis, "angle", "%.6f" % (self.angles[i],)
+            )
+            configfile.set(
+                "stepper_" + axis, "arm_length", "%.6f" % (self.bed_arms[i],)
+            )
+            configfile.set(
+                "stepper_" + axis,
+                "position_endstop",
+                "%.6f" % (self.endstops[3 + i],),
+            )
+        gcode = configfile.get_printer().lookup_object("gcode")
+        gcode.respond_info(
+            "delta_radius: %.6f\n"
+            "toolhead a/b/c arm_length: %.4f %.4f %.4f\n"
+            "toolhead a/b/c endstop: %.4f %.4f %.4f\n"
+            "bed d/e/f arm_length: %.4f %.4f %.4f\n"
+            "bed d/e/f endstop: %.4f %.4f %.4f"
+            % (
+                self.radius,
+                self.tool_arms[0],
+                self.tool_arms[1],
+                self.tool_arms[2],
+                self.endstops[0],
+                self.endstops[1],
+                self.endstops[2],
+                self.bed_arms[0],
+                self.bed_arms[1],
+                self.bed_arms[2],
+                self.endstops[3],
+                self.endstops[4],
+                self.endstops[5],
+            )
         )
 
 

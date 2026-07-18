@@ -138,15 +138,39 @@ through the full homing sweep before running `G28` on new hardware.
 
 ## Calibration
 
-- **Arm length / delta radius / endstops.** `DELTA_CALIBRATE` calibrates the
-  **toolhead** mechanism exactly as for a
+- **Toolhead mechanism (`DELTA_CALIBRATE`).** `DELTA_CALIBRATE` calibrates the
+  **toolhead** delta exactly as for a
   [linear delta](Delta_Calibrate.md); it adjusts `delta_radius`, the toolhead
-  tower `angle`s, `arm_length`s, and `position_endstop`s. The bed mechanism is
-  assumed to be geometrically symmetric to the toolhead mechanism and is not
-  probed. If your bed arms or radius differ, set those bed parameters by hand.
+  tower `angle`s, `arm_length`s, and `position_endstop`s. Because the three
+  rails are physically shared, `delta_radius` and the tower `angle`s it finds
+  apply to the bed mechanism too. Run this first.
+- **Bed mechanism (`COLINEAR_DELTA_CALIBRATE`).** A bed probe measures the
+  nozzle *relative* to the plate, so at a single `motion_split` the toolhead
+  and bed deltas cannot be told apart — which is why `DELTA_CALIBRATE` only ever
+  fits one side. `COLINEAR_DELTA_CALIBRATE` calibrates the bed delta's
+  `arm_length`s and `position_endstop`s (`stepper_d/e/f`). Two solvers are
+  available:
+
+    - `SOLVE=bed` (default): treats the already-calibrated toolhead delta as a
+      known measuring arm and solves the bed side from one set of probe points.
+      Well conditioned — run `DELTA_CALIBRATE` first, then this.
+    - `SOLVE=joint`: solves **both** deltas at once. This is only observable
+      when the probe samples span at least two `motion_split` values (changing
+      the split exercises each mechanism at a different scale for the same
+      commanded point). Collect samples at several splits with `PROBE_ONLY=1`,
+      changing `motion_split` in the config and restarting between passes — the
+      stored samples are split-independent step counts and survive the restart
+      — then run `COLINEAR_DELTA_CALIBRATE SOLVE=joint`.
+
+  Both accept the same `METHOD=manual` / `METHOD=automatic` probing options as
+  `DELTA_CALIBRATE`. `CLEAR=1` discards stored samples. Run `SAVE_CONFIG` after
+  a solve (or after a `PROBE_ONLY=1` pass) to persist the result. Configure the
+  probe area with a `[colinear_delta_calibrate]` section (a `radius:` sets the
+  default probe-point ring; the usual `[probe]`-style options apply).
 - **Motion split.** `motion_split` is a mechanical property of how the machine
-  is driven, not something `DELTA_CALIBRATE` measures. Leave it at `0.5` unless
-  you are deliberately biasing motion toward one mechanism.
+  is driven, not something the calibration measures (though the `joint` solver
+  deliberately varies it to gain observability). Leave it at `0.5` for normal
+  printing unless you are deliberately biasing motion toward one mechanism.
 - **Secondary rotation.** `secondary_rotation` describes how the bed delta is
   mounted. For most machines this is exactly `180`. If prints come out mirrored
   or rotated, re-check this value (and your stepper `dir_pin` polarities) before
@@ -156,8 +180,8 @@ through the full homing sweep before running `G28` on new hardware.
 
 - Only vertical-rail, carriage-outboard geometries are supported (see
   [Hardware requirements](#hardware-requirements)).
-- `DELTA_CALIBRATE` covers the toolhead mechanism only; bed geometry is assumed
-  symmetric.
+- `DELTA_CALIBRATE` covers the toolhead mechanism only. Use
+  `COLINEAR_DELTA_CALIBRATE` to calibrate the bed mechanism (`stepper_d/e/f`).
 - Homing choreography (order, direction, and clearances) depends on how your
   endstops are placed. Validate homing carefully on new hardware, with the
   motors free to move, before trusting `G28`.

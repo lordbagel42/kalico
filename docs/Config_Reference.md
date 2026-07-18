@@ -630,9 +630,20 @@ position_endstop:
 [stepper_e]
 [stepper_f]
 
-# DELTA_CALIBRATE calibrates the toolhead mechanism (the bed mechanism is
-# assumed symmetric). See Colinear_Delta.md for details.
+# DELTA_CALIBRATE calibrates the toolhead mechanism (steppers a/b/c). See
+# Colinear_Delta.md for details.
 [delta_calibrate]
+radius:
+#   Radius (in mm) of the area that may be probed. This parameter must be
+#   provided.
+#speed: 50
+#horizontal_move_z: 5
+#use_probe_xy_offsets: False
+
+# COLINEAR_DELTA_CALIBRATE calibrates the bed mechanism (steppers d/e/f) -
+# the "other side" that DELTA_CALIBRATE cannot reach. See Colinear_Delta.md
+# for the procedure (including the multi-split joint solve).
+[colinear_delta_calibrate]
 radius:
 #   Radius (in mm) of the area that may be probed. This parameter must be
 #   provided.

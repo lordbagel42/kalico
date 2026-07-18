@@ -1,0 +1,62 @@
+# Test case for COLINEAR_DELTA_CALIBRATE on colinear delta printers
+CONFIG colinear_delta_calibrate.cfg
+DICTIONARY hostsimulator.dict
+
+# Home all six carriages (bed mechanism first, then toolhead).
+G28
+
+# Bed calibration in manual mode (toolhead treated as a known measuring
+# arm; solves the bed delta arm lengths d/e/f and endstops d/e/f).
+COLINEAR_DELTA_CALIBRATE METHOD=manual
+G1 Z0.1
+ACCEPT
+G1 Z0.1
+ACCEPT
+G1 Z0.1
+ACCEPT
+G1 Z0.1
+ACCEPT
+G1 Z0.1
+ACCEPT
+G1 Z0.1
+ACCEPT
+G1 Z0.1
+ACCEPT
+
+# Accumulate a set of samples without solving (PROBE_ONLY), for a later
+# joint solve.
+COLINEAR_DELTA_CALIBRATE METHOD=manual PROBE_ONLY=1
+G1 Z0.1
+ACCEPT
+G1 Z0.1
+ACCEPT
+G1 Z0.1
+ACCEPT
+G1 Z0.1
+ACCEPT
+G1 Z0.1
+ACCEPT
+G1 Z0.1
+ACCEPT
+G1 Z0.1
+ACCEPT
+
+# Joint solve (warns that only one motion_split is present, then runs).
+COLINEAR_DELTA_CALIBRATE METHOD=manual SOLVE=joint
+G1 Z0.1
+ACCEPT
+G1 Z0.1
+ACCEPT
+G1 Z0.1
+ACCEPT
+G1 Z0.1
+ACCEPT
+G1 Z0.1
+ACCEPT
+G1 Z0.1
+ACCEPT
+G1 Z0.1
+ACCEPT
+
+# Clear the stored samples.
+COLINEAR_DELTA_CALIBRATE CLEAR=1

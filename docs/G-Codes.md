@@ -365,6 +365,25 @@ is active. The optional `HORIZONTAL_MOVE_Z` value overrides the
 `DELTA_ANALYZE`: This command is used during enhanced delta
 calibration. See [Delta Calibrate](Delta_Calibrate.md) for details.
 
+### [colinear_delta_calibrate]
+
+The following command is available when the
+[colinear_delta_calibrate] config section is enabled (only valid on
+`colinear_delta` printers). See the
+[colinear delta guide](Colinear_Delta.md#calibration) for the full procedure.
+
+#### COLINEAR_DELTA_CALIBRATE
+`COLINEAR_DELTA_CALIBRATE [SOLVE=bed|joint] [PROBE_ONLY=1] [CLEAR=1]
+[METHOD=manual] [<probe_parameter>=<value>]`: Calibrates the bed mechanism
+(steppers d/e/f) of a colinear delta - the arm lengths and endstop positions
+that `DELTA_CALIBRATE` cannot reach. Run `DELTA_CALIBRATE` first, then this.
+`SOLVE=bed` (default) solves the bed side using the calibrated toolhead as a
+reference. `SOLVE=joint` solves both mechanisms at once and requires probe
+samples collected at two or more `motion_split` values (use `PROBE_ONLY=1` to
+accumulate samples across `motion_split` changes and restarts before the joint
+solve). `CLEAR=1` discards stored samples. `METHOD` and probe parameters behave
+as for `DELTA_CALIBRATE`. Run `SAVE_CONFIG` afterwards to apply the results.
+
 ### [display]
 
 The following command is available when a

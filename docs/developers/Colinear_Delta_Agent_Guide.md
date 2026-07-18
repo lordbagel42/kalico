@@ -237,8 +237,19 @@ Implement the standard Kalico kinematic interface. Deltas from
 - `get_status(eventtime)` - `homed_axes`, `axis_minimum`, `axis_maximum`,
   `cone_start_z`.
 - `get_calibration()` - a `DeltaCalibration` built from the **toolhead** rails
-  only (the bed is assumed symmetric). `DELTA_CALIBRATE` is duck-typed on this
-  method and only ever reads `stepper_a/b/c`.
+  only. `DELTA_CALIBRATE` is duck-typed on this method and only ever reads
+  `stepper_a/b/c`. This is the "one side" of the machine that ordinary delta
+  calibration can reach.
+- `get_full_calibration()` - a `ColinearDeltaCalibration` (defined in the same
+  module) modelling **both** deltas. Consumed by `COLINEAR_DELTA_CALIBRATE`
+  (`klippy/extras/colinear_delta_calibrate.py`) to calibrate the bed side
+  (`stepper_d/e/f`). Radius and tower angles are shared (the rails are shared),
+  so only per-side arm lengths and the six endstops differ. Its "stable
+  position" is a 6-tuple of steps-from-endstop; being expressed in step counts
+  it is independent of both the geometry parameters and `motion_split`, which
+  is what lets probe samples taken at different splits be combined in one
+  `SOLVE=joint` fit. A single split cannot separate the two sides (a bed probe
+  only observes `T - B`); varying `motion_split` breaks that degeneracy.
 - `load_kinematics(toolhead, config)` - return the instance.
 
 ---
